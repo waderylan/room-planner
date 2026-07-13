@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStore } from "../../store/store";
 import { Button } from "../ui/Button";
 import { Sparkle, X } from "@phosphor-icons/react";
@@ -101,6 +101,8 @@ export function Tutorial() {
 
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [cardH, setCardH] = useState(200);
 
   // Show once per browser, on first visit. On-demand launches come from the
   // toolbar via setTourOpen(true).
@@ -124,9 +126,26 @@ export function Tutorial() {
   useLayoutEffect(() => {
     if (!active) return;
     step.onEnter?.();
+    // Scroll the target into view (e.g. inside the scrollable left sidebar) so
+    // the spotlight and card land on-screen. Only on step entry, not on every
+    // scroll/resize, to avoid a scroll feedback loop.
+    const bring = () => {
+      if (!step.target) return;
+      document.querySelector(step.target)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
     const measure = () => setRect(readRect(step.target));
+    bring();
     measure();
-    const timers = [setTimeout(measure, 60), setTimeout(measure, 220)];
+    const timers = [
+      setTimeout(() => {
+        bring();
+        measure();
+      }, 60),
+      setTimeout(() => {
+        bring();
+        measure();
+      }, 220),
+    ];
     window.addEventListener("resize", measure);
     window.addEventListener("scroll", measure, true);
     return () => {
@@ -134,6 +153,14 @@ export function Tutorial() {
       window.removeEventListener("resize", measure);
       window.removeEventListener("scroll", measure, true);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, index]);
+
+  // Measure the card height per step so we can clamp it fully on-screen.
+  useLayoutEffect(() => {
+    if (!active) return;
+    const h = cardRef.current?.offsetHeight;
+    if (h) setCardH(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, index]);
 
@@ -167,50 +194,47 @@ export function Tutorial() {
   const vh = window.innerHeight;
   const isLast = index === steps.length - 1;
 
-  // Card position: centered when there's no target, otherwise beside the
-  // spotlight on the requested side, clamped into the viewport.
+  // Card position: explicit top/left (no transforms) so we can clamp both axes
+  // fully into the viewport. Centered when there's no target; otherwise beside
+  // the spotlight on the requested side, flipping/falling back as space allows.
   const margin = 12;
+  const maxTop = Math.max(margin, vh - cardH - margin);
+  const maxLeft = Math.max(margin, vw - CARD_WIDTH - margin);
   let cardTop: number;
   let cardLeft: number;
-  let cardTransform = "";
 
   if (!rect) {
-    cardTop = vh / 2;
-    cardLeft = vw / 2;
-    cardTransform = "translate(-50%, -50%)";
+    cardTop = (vh - cardH) / 2;
+    cardLeft = (vw - CARD_WIDTH) / 2;
   } else {
     const placement = step.placement ?? "bottom";
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
-    if (placement === "bottom") {
-      cardTop = rect.top + rect.height + PAD + GAP;
-      cardLeft = clamp(cx - CARD_WIDTH / 2, margin, vw - CARD_WIDTH - margin);
-    } else if (placement === "top") {
-      cardTop = rect.top - PAD - GAP;
-      cardLeft = clamp(cx - CARD_WIDTH / 2, margin, vw - CARD_WIDTH - margin);
-      cardTransform = "translateY(-100%)";
-    } else if (placement === "right") {
-      cardLeft = rect.left + rect.width + PAD + GAP;
-      cardTop = clamp(cy, margin + 60, vh - margin - 60);
-      cardTransform = "translateY(-50%)";
-      // Fall back below the target if there isn't room to the right.
-      if (cardLeft + CARD_WIDTH > vw - margin) {
-        cardLeft = clamp(cx - CARD_WIDTH / 2, margin, vw - CARD_WIDTH - margin);
-        cardTop = rect.top + rect.height + PAD + GAP;
-        cardTransform = "";
-      }
+    const rBottom = rect.top + rect.height;
+    const rRight = rect.left + rect.width;
+
+    if (placement === "top" && rect.top - PAD - GAP - cardH >= margin) {
+      cardTop = rect.top - PAD - GAP - cardH;
+      cardLeft = cx - CARD_WIDTH / 2;
+    } else if (placement === "right" && rRight + PAD + GAP + CARD_WIDTH <= vw - margin) {
+      cardLeft = rRight + PAD + GAP;
+      cardTop = cy - cardH / 2;
+    } else if (placement === "left" && rect.left - PAD - GAP - CARD_WIDTH >= margin) {
+      cardLeft = rect.left - PAD - GAP - CARD_WIDTH;
+      cardTop = cy - cardH / 2;
+    } else if (rBottom + PAD + GAP + cardH <= vh - margin) {
+      // Default / fallback: below the target.
+      cardTop = rBottom + PAD + GAP;
+      cardLeft = cx - CARD_WIDTH / 2;
     } else {
-      // left
-      cardLeft = rect.left - PAD - GAP;
-      cardTop = clamp(cy, margin + 60, vh - margin - 60);
-      cardTransform = "translate(-100%, -50%)";
-      if (cardLeft - CARD_WIDTH < margin) {
-        cardLeft = clamp(cx - CARD_WIDTH / 2, margin, vw - CARD_WIDTH - margin);
-        cardTop = rect.top + rect.height + PAD + GAP;
-        cardTransform = "";
-      }
+      // No room below either: place above.
+      cardTop = rect.top - PAD - GAP - cardH;
+      cardLeft = cx - CARD_WIDTH / 2;
     }
   }
+
+  cardTop = clamp(cardTop, margin, maxTop);
+  cardLeft = clamp(cardLeft, margin, maxLeft);
 
   return (
     <div className="fixed inset-0 z-[70]">
@@ -237,8 +261,9 @@ export function Tutorial() {
 
       {/* Card */}
       <div
-        className="absolute flex flex-col gap-3 rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4 shadow-xl"
-        style={{ top: cardTop, left: cardLeft, width: CARD_WIDTH, transform: cardTransform }}
+        ref={cardRef}
+        className="absolute flex flex-col gap-3 overflow-y-auto rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--bg-elevated)] p-4 shadow-xl"
+        style={{ top: cardTop, left: cardLeft, width: CARD_WIDTH, maxHeight: vh - margin * 2 }}
       >
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-1.5 text-[var(--accent)]">

@@ -12,6 +12,7 @@ import {
   List,
   MagnetStraight,
   MoonStars,
+  Question,
   Sparkle,
   SunDim,
   UploadSimple,
@@ -58,6 +59,7 @@ export function Toolbar() {
 
   const chatOpen = useStore((s) => s.chatOpen);
   const setChatOpen = useStore((s) => s.setChatOpen);
+  const setTourOpen = useStore((s) => s.setTourOpen);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -87,14 +89,16 @@ export function Toolbar() {
         className="md:hidden"
       />
 
-      <Segmented
-        options={[
-          { value: "2d", label: "2D" },
-          { value: "3d", label: "3D" },
-        ]}
-        value={viewMode}
-        onChange={setViewMode}
-      />
+      <div data-tour="view">
+        <Segmented
+          options={[
+            { value: "2d", label: "2D" },
+            { value: "3d", label: "3D" },
+          ]}
+          value={viewMode}
+          onChange={setViewMode}
+        />
+      </div>
 
       {viewMode === "2d" && (
         <Segmented
@@ -137,7 +141,7 @@ export function Toolbar() {
       )}
 
       <div className="ml-auto flex items-center gap-1.5">
-        <Button size="sm" variant="secondary" icon={<DownloadSimple size={14} />} onClick={exportDoc}>
+        <Button data-tour="save" size="sm" variant="secondary" icon={<DownloadSimple size={14} />} onClick={exportDoc}>
           Save
         </Button>
         <Button size="sm" variant="secondary" icon={<UploadSimple size={14} />} onClick={onLoadClick}>
@@ -145,6 +149,11 @@ export function Toolbar() {
         </Button>
         <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={onFileChange} />
 
+        <IconButton
+          aria-label="Take the tour"
+          icon={<Question size={16} />}
+          onClick={() => setTourOpen(true)}
+        />
         <IconButton
           aria-label="Keyboard shortcuts"
           icon={<Keyboard size={16} />}
@@ -155,8 +164,9 @@ export function Toolbar() {
           icon={theme === "dark" ? <SunDim size={16} /> : <MoonStars size={16} />}
           onClick={toggleTheme}
         />
-        <IconButton aria-label="AI assistant settings" icon={<GearSix size={16} />} onClick={() => setSettingsOpen(true)} />
+        <IconButton data-tour="settings" aria-label="AI assistant settings" icon={<GearSix size={16} />} onClick={() => setSettingsOpen(true)} />
         <Button
+          data-tour="assistant"
           size="sm"
           variant={chatOpen ? "primary" : "secondary"}
           icon={<Sparkle size={14} />}

@@ -65,7 +65,7 @@ export function RoomPanel() {
   }
 
   return (
-    <section className="flex flex-col gap-3 border-b border-[var(--border)] px-3.5 py-4">
+    <section data-tour="room" className="flex flex-col gap-3 border-b border-[var(--border)] px-3.5 py-4">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-faint)]">Room</h2>
 
       <div className="flex items-center justify-between">

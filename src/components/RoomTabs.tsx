@@ -21,7 +21,7 @@ export function RoomTabs() {
   const pendingRoom = rooms.find((r) => r.id === pendingDeleteId);
 
   return (
-    <div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-t border-[var(--border)] bg-[var(--bg-elevated)] px-2">
+    <div data-tour="rooms" className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-t border-[var(--border)] bg-[var(--bg-elevated)] px-2">
       {rooms.map((room) => {
         const active = room.id === activeRoomId;
         const editing = editingId === room.id;

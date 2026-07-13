@@ -8,6 +8,7 @@ import { View3D } from "./components/View3D/View3D";
 import { ToastStack } from "./components/ui/ToastStack";
 import { ChatPanel } from "./components/Chat/ChatPanel";
 import { SettingsDialog } from "./components/Settings/SettingsDialog";
+import { Tutorial } from "./components/Tutorial/Tutorial";
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -80,7 +81,7 @@ function App() {
 
         <div className="flex min-w-0 flex-1 flex-col">
           <Toolbar />
-          <div className="min-h-0 flex-1">{viewMode === "2d" ? <Canvas2D /> : <View3D />}</div>
+          <div data-tour="canvas" className="min-h-0 flex-1">{viewMode === "2d" ? <Canvas2D /> : <View3D />}</div>
         </div>
 
         {chatOpen && (
@@ -98,6 +99,7 @@ function App() {
       <RoomTabs />
       <ToastStack />
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <Tutorial />
     </div>
   );
 }

@@ -6,7 +6,7 @@ export function AddFurniturePanel() {
   const addItemFromPreset = useStore((s) => s.addItemFromPreset);
 
   return (
-    <section className="flex flex-col gap-3 border-b border-[var(--border)] px-3.5 py-4">
+    <section data-tour="furniture" className="flex flex-col gap-3 border-b border-[var(--border)] px-3.5 py-4">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-faint)]">Add furniture</h2>
       <div className="grid grid-cols-2 gap-1.5">
         {FURNITURE_PRESETS.map((preset) => (

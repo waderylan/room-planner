@@ -40,6 +40,7 @@ interface StoreState {
   sidebarOpen: boolean;
   wallsVisible: boolean;
   chatOpen: boolean;
+  tourOpen: boolean;
   toasts: Toast[];
 
   // derived helpers
@@ -54,6 +55,7 @@ interface StoreState {
   setSidebarOpen: (open: boolean) => void;
   toggleWallsVisible: () => void;
   setChatOpen: (open: boolean) => void;
+  setTourOpen: (open: boolean) => void;
 
   // rooms
   addRoom: () => void;
@@ -148,6 +150,7 @@ export const useStore = create<StoreState>()((set, get) => {
     sidebarOpen: false,
     wallsVisible: true,
     chatOpen: false,
+    tourOpen: false,
     toasts: [],
 
     activeRoom: () => {
@@ -170,6 +173,7 @@ export const useStore = create<StoreState>()((set, get) => {
     setSidebarOpen: (open) => set({ sidebarOpen: open }),
     toggleWallsVisible: () => set((s) => ({ wallsVisible: !s.wallsVisible })),
     setChatOpen: (open) => set({ chatOpen: open }),
+    setTourOpen: (open) => set({ tourOpen: open }),
 
     addRoom: () => {
       const d = get().doc;

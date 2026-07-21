@@ -7,6 +7,7 @@ import { Dialog } from "./ui/Dialog";
 import { SettingsDialog } from "./Settings/SettingsDialog";
 import {
   DownloadSimple,
+  GameController,
   GearSix,
   Keyboard,
   List,
@@ -39,7 +40,11 @@ const SHORTCUTS_WALK: [string, string][] = [
   ["Esc", "Release the mouse / exit walk mode"],
 ];
 
-export function Toolbar() {
+export interface ToolbarProps {
+  onBackToLanding?: () => void;
+}
+
+export function Toolbar({ onBackToLanding }: ToolbarProps) {
   const viewMode = useStore((s) => s.viewMode);
   const setViewMode = useStore((s) => s.setViewMode);
   const cameraMode = useStore((s) => s.cameraMode);
@@ -141,6 +146,9 @@ export function Toolbar() {
       )}
 
       <div className="ml-auto flex items-center gap-1.5">
+        {onBackToLanding && (
+          <IconButton aria-label="Back to landing page" icon={<GameController size={16} />} onClick={onBackToLanding} />
+        )}
         <Button data-tour="save" size="sm" variant="secondary" icon={<DownloadSimple size={14} />} onClick={exportDoc}>
           Save
         </Button>

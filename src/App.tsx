@@ -16,7 +16,11 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return tag === "input" || tag === "textarea" || target.isContentEditable;
 }
 
-function App() {
+export interface AppProps {
+  onBackToLanding?: () => void;
+}
+
+function App({ onBackToLanding }: AppProps) {
   const theme = useStore((s) => s.theme);
   const viewMode = useStore((s) => s.viewMode);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
@@ -80,7 +84,7 @@ function App() {
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <Toolbar />
+          <Toolbar onBackToLanding={onBackToLanding} />
           <div data-tour="canvas" className="min-h-0 flex-1">{viewMode === "2d" ? <Canvas2D /> : <View3D />}</div>
         </div>
 

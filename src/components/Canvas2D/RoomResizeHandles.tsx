@@ -25,6 +25,7 @@ const MIN_ROOM_SIZE = 1; // 1 ft
  */
 export function RoomResizeHandles({ shape, svgRef, unitsPerPixel }: RoomResizeHandlesProps) {
   const setRoomShape = useStore((s) => s.setRoomShape);
+  const resizeSensitivity = useStore((s) => s.resizeSensitivity);
   const dragRef = useRef<{ mode: DragMode; startSvg: Vec2; start: RoomShape } | null>(null);
 
   function handlePointerDown(mode: DragMode, e: React.PointerEvent) {
@@ -40,8 +41,8 @@ export function RoomResizeHandles({ shape, svgRef, unitsPerPixel }: RoomResizeHa
     const svg = svgRef.current;
     if (!drag || !svg) return;
     const cur = screenToSvgPoint(svg, e.clientX, e.clientY);
-    const dx = cur.x - drag.startSvg.x;
-    const dy = cur.y - drag.startSvg.y;
+    const dx = (cur.x - drag.startSvg.x) * resizeSensitivity;
+    const dy = (cur.y - drag.startSvg.y) * resizeSensitivity;
     const skipSnap = e.altKey;
     const snapv = (v: number) => (skipSnap ? v : snap(v, INCH_FT));
     const start = drag.start;

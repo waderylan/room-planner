@@ -1,4 +1,5 @@
 import { useMemo, useRef, type RefObject } from "react";
+import { useStore } from "../../store/store";
 import type { Footprint, Item } from "../../model/types";
 import type { Vec2 } from "../../geometry/types";
 import { localPolygon, footprintSize, repositionForResize } from "../../geometry/shape";
@@ -159,6 +160,7 @@ export function FurnitureItemView({
   onLiveResize,
   onCommitResize,
 }: FurnitureItemViewProps) {
+  const resizeSensitivity = useStore((s) => s.resizeSensitivity);
   const local = useMemo(() => localPolygon(item.footprint), [item.footprint]);
   const center = useMemo(() => centroid(local), [local]);
   const size = useMemo(() => footprintSize(item.footprint), [item.footprint]);
@@ -284,8 +286,8 @@ export function FurnitureItemView({
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
     // project the world-space drag delta onto the item's own (rotated) local axes
-    const localDx = dx * cos + dy * sin;
-    const localDy = -dx * sin + dy * cos;
+    const localDx = (dx * cos + dy * sin) * resizeSensitivity;
+    const localDy = (-dx * sin + dy * cos) * resizeSensitivity;
     const skipSnap = e.altKey;
     const result = computeResize(drag.edge, drag.startFootprint, drag.startPos, item.rotDeg, localDx, localDy, skipSnap);
     lastResizeRef.current = result;

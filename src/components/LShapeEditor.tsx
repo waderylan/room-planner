@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { useStore } from "../store/store";
 import type { NotchCorner } from "../model/types";
 import type { Vec2 } from "../geometry/types";
 import { lShapePolygon, notchCornerPoint, widthHandleX, depthHandleY, widthHandleOnRight, depthHandleOnBottom } from "../geometry/lshape";
@@ -37,6 +38,7 @@ function cornerPreviewPolygon(corner: NotchCorner): string {
 type DragMode = "width" | "depth" | "notch";
 
 export function LShapeEditor({ value, onChange, unit = "ft" }: LShapeEditorProps) {
+  const resizeSensitivity = useStore((s) => s.resizeSensitivity);
   const poly = lShapePolygon(value.overallW, value.overallD, value.notchCorner, value.notchWidth, value.notchDepth);
   const scale = Math.min(160 / value.overallW, 120 / value.overallD, 40);
   const pw = value.overallW * scale;
@@ -69,8 +71,8 @@ export function LShapeEditor({ value, onChange, unit = "ft" }: LShapeEditorProps
     const svg = svgRef.current;
     if (!drag || !svg) return;
     const cur = screenToSvgPoint(svg, e.clientX, e.clientY);
-    const dxVal = (cur.x - drag.startSvg.x) / drag.startScale;
-    const dyVal = (cur.y - drag.startSvg.y) / drag.startScale;
+    const dxVal = ((cur.x - drag.startSvg.x) / drag.startScale) * resizeSensitivity;
+    const dyVal = ((cur.y - drag.startSvg.y) / drag.startScale) * resizeSensitivity;
     const skipSnap = e.altKey;
     const snapv = (v: number) => (skipSnap ? v : snap(v, INCH_FT));
     const start = drag.start;

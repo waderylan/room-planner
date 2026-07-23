@@ -37,6 +37,7 @@ interface StoreState {
   cameraMode: CameraMode;
   snapEnabled: boolean;
   snapStep: number;
+  resizeSensitivity: number;
   sidebarOpen: boolean;
   wallsVisible: boolean;
   chatOpen: boolean;
@@ -52,6 +53,7 @@ interface StoreState {
   setViewMode: (m: ViewMode) => void;
   setCameraMode: (m: CameraMode) => void;
   toggleSnap: () => void;
+  setResizeSensitivity: (v: number) => void;
   setSidebarOpen: (open: boolean) => void;
   toggleWallsVisible: () => void;
   setChatOpen: (open: boolean) => void;
@@ -148,6 +150,7 @@ export const useStore = create<StoreState>()((set, get) => {
     cameraMode: "orbit",
     snapEnabled: true,
     snapStep: 0.25,
+    resizeSensitivity: 0.5,
     sidebarOpen: false,
     wallsVisible: true,
     chatOpen: false,
@@ -171,6 +174,7 @@ export const useStore = create<StoreState>()((set, get) => {
     setViewMode: (m) => set({ viewMode: m }),
     setCameraMode: (m) => set({ cameraMode: m }),
     toggleSnap: () => set((s) => ({ snapEnabled: !s.snapEnabled })),
+    setResizeSensitivity: (v) => set({ resizeSensitivity: Math.min(1.5, Math.max(0.1, v)) }),
     setSidebarOpen: (open) => set({ sidebarOpen: open }),
     toggleWallsVisible: () => set((s) => ({ wallsVisible: !s.wallsVisible })),
     setChatOpen: (open) => set({ chatOpen: open }),

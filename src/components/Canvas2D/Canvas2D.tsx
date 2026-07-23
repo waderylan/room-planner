@@ -11,6 +11,7 @@ import { RoomOutlineView } from "./RoomOutlineView";
 import { RoomResizeHandles } from "./RoomResizeHandles";
 import { FurnitureItemView } from "./FurnitureItemView";
 import { Measurements } from "./Measurements";
+import { SensitivityControl } from "./SensitivityControl";
 import { IconButton } from "../ui/IconButton";
 import { ArrowsOutSimple, MagnifyingGlassPlus, MagnifyingGlassMinus } from "@phosphor-icons/react";
 
@@ -216,6 +217,7 @@ export function Canvas2D() {
           onClick={() => setViewBox(fitViewBox(room.outline))}
           className="bg-[var(--bg-elevated)] border border-[var(--border)] shadow-[var(--shadow-sm)]"
         />
+        <SensitivityControl />
         <IconButton
           aria-label="Zoom in"
           icon={<MagnifyingGlassPlus size={16} />}

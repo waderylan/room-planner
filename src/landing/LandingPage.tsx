@@ -101,8 +101,6 @@ export function LandingPage({ onEnter }: LandingPageProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onEnter]);
 
-  const skipToEnd = () => window.scrollTo(0, document.documentElement.scrollHeight);
-
   return (
     <div className="landing">
       <div className="landing-stage">
@@ -139,7 +137,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
       <div className="landing-legend">
         {phase < 4 ? (
           <>
-            <button onClick={skipToEnd}>
+            <button onClick={onEnter}>
               <XGlyph size={16} /> SKIP
             </button>
             <span>SCROLL ▼</span>

@@ -130,3 +130,42 @@ export function deriveLShapeParams(points: Vec2[]): LShapeParams | null {
   if (notchWidth <= 0 || notchDepth <= 0) return null;
   return { overallW: w, overallD: d, notchCorner: corner, notchWidth, notchDepth };
 }
+
+/**
+ * The two edges touching the corner diagonally opposite the notch are always full
+ * length (the notch can never shorten them), so resize handles for "overall width"
+ * and "overall depth" belong there rather than on a mid-edge point that may fall
+ * inside the cut-out. These helpers give that edge's fixed coordinate and which
+ * direction dragging the handle grows the shape.
+ */
+export function widthHandleX(overallW: number, corner: NotchCorner): number {
+  return corner === "ne" || corner === "se" ? 0 : overallW;
+}
+
+export function depthHandleY(overallD: number, corner: NotchCorner): number {
+  return corner === "sw" || corner === "se" ? 0 : overallD;
+}
+
+/** True when the width handle sits on the right edge (dragging right grows overallW). */
+export function widthHandleOnRight(corner: NotchCorner): boolean {
+  return corner === "nw" || corner === "sw";
+}
+
+/** True when the depth handle sits on the bottom edge (dragging down grows overallD). */
+export function depthHandleOnBottom(corner: NotchCorner): boolean {
+  return corner === "nw" || corner === "ne";
+}
+
+/** The single interior vertex where the two cut-out edges meet. */
+export function notchCornerPoint(params: LShapeParams): Vec2 {
+  switch (params.notchCorner) {
+    case "nw":
+      return { x: params.notchWidth, y: params.notchDepth };
+    case "ne":
+      return { x: params.overallW - params.notchWidth, y: params.notchDepth };
+    case "sw":
+      return { x: params.notchWidth, y: params.overallD - params.notchDepth };
+    case "se":
+      return { x: params.overallW - params.notchWidth, y: params.overallD - params.notchDepth };
+  }
+}

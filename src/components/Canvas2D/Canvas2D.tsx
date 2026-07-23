@@ -8,6 +8,7 @@ import { fitViewBox, viewBoxString, zoomViewBox, panViewBox, type ViewBox } from
 import { screenToSvgPoint } from "./svgPoint";
 import { Grid } from "./Grid";
 import { RoomOutlineView } from "./RoomOutlineView";
+import { RoomResizeHandles } from "./RoomResizeHandles";
 import { FurnitureItemView } from "./FurnitureItemView";
 import { Measurements } from "./Measurements";
 import { IconButton } from "../ui/IconButton";
@@ -163,6 +164,7 @@ export function Canvas2D() {
       >
         <Grid outline={room.outline} />
         <RoomOutlineView outline={room.outline} openings={room.openings} unit={room.unit} unitsPerPixel={upp} />
+        <RoomResizeHandles shape={room.shape} svgRef={svgRef} unitsPerPixel={upp} />
 
         {effectiveItems
           .filter((it) => !it.hidden)

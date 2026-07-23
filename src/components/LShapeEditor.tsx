@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import type { NotchCorner } from "../model/types";
 import type { Vec2 } from "../geometry/types";
-import { lShapePolygon } from "../geometry/lshape";
+import { lShapePolygon, notchCornerPoint, widthHandleX, depthHandleY, widthHandleOnRight, depthHandleOnBottom } from "../geometry/lshape";
 import { snap } from "../geometry/polygon";
 import { INCH_FT } from "../format/length";
 import { screenToSvgPoint } from "./Canvas2D/svgPoint";
@@ -34,20 +34,6 @@ function cornerPreviewPolygon(corner: NotchCorner): string {
   return poly.map((p) => `${p.x},${p.y}`).join(" ");
 }
 
-/** The single interior vertex where the two cut-out edges meet, in value (feet) space. */
-function notchCornerPoint(v: LShapeValue): Vec2 {
-  switch (v.notchCorner) {
-    case "nw":
-      return { x: v.notchWidth, y: v.notchDepth };
-    case "ne":
-      return { x: v.overallW - v.notchWidth, y: v.notchDepth };
-    case "sw":
-      return { x: v.notchWidth, y: v.overallD - v.notchDepth };
-    case "se":
-      return { x: v.overallW - v.notchWidth, y: v.overallD - v.notchDepth };
-  }
-}
-
 type DragMode = "width" | "depth" | "notch";
 
 export function LShapeEditor({ value, onChange, unit = "ft" }: LShapeEditorProps) {
@@ -57,7 +43,11 @@ export function LShapeEditor({ value, onChange, unit = "ft" }: LShapeEditorProps
   const pd = value.overallD * scale;
 
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const dragRef = useRef<{ mode: DragMode; startSvg: Vec2; start: LShapeValue } | null>(null);
+  // startScale is captured once per drag so resizing the shape mid-drag (which changes
+  // `scale` above, since the preview always fits a fixed pixel box) can't feed back into
+  // the drag math — without it, growing the shape shrinks the scale, which makes the same
+  // mouse movement map to an ever-larger value delta, i.e. runaway/exponential sensitivity.
+  const dragRef = useRef<{ mode: DragMode; startSvg: Vec2; start: LShapeValue; startScale: number } | null>(null);
 
   function set(patch: Partial<LShapeValue>) {
     const next = { ...value, ...patch };
@@ -71,7 +61,7 @@ export function LShapeEditor({ value, onChange, unit = "ft" }: LShapeEditorProps
     const svg = svgRef.current;
     if (!svg) return;
     (e.target as Element).setPointerCapture(e.pointerId);
-    dragRef.current = { mode, startSvg: screenToSvgPoint(svg, e.clientX, e.clientY), start: value };
+    dragRef.current = { mode, startSvg: screenToSvgPoint(svg, e.clientX, e.clientY), start: value, startScale: scale };
   }
 
   function handlePointerMove(e: React.PointerEvent) {
@@ -79,40 +69,24 @@ export function LShapeEditor({ value, onChange, unit = "ft" }: LShapeEditorProps
     const svg = svgRef.current;
     if (!drag || !svg) return;
     const cur = screenToSvgPoint(svg, e.clientX, e.clientY);
-    const valueX = cur.x / scale;
-    const valueY = cur.y / scale;
+    const dxVal = (cur.x - drag.startSvg.x) / drag.startScale;
+    const dyVal = (cur.y - drag.startSvg.y) / drag.startScale;
     const skipSnap = e.altKey;
     const snapv = (v: number) => (skipSnap ? v : snap(v, INCH_FT));
     const start = drag.start;
 
     if (drag.mode === "width") {
-      set({ overallW: Math.max(1, snapv(valueX)) });
+      const grow = widthHandleOnRight(start.notchCorner) ? dxVal : -dxVal;
+      set({ overallW: Math.max(1, snapv(start.overallW + grow)) });
     } else if (drag.mode === "depth") {
-      set({ overallD: Math.max(1, snapv(valueY)) });
+      const grow = depthHandleOnBottom(start.notchCorner) ? dyVal : -dyVal;
+      set({ overallD: Math.max(1, snapv(start.overallD + grow)) });
     } else {
-      const w = start.overallW;
-      const d = start.overallD;
-      let nw: number;
-      let nd: number;
-      switch (start.notchCorner) {
-        case "nw":
-          nw = valueX;
-          nd = valueY;
-          break;
-        case "ne":
-          nw = w - valueX;
-          nd = valueY;
-          break;
-        case "sw":
-          nw = valueX;
-          nd = d - valueY;
-          break;
-        case "se":
-          nw = w - valueX;
-          nd = d - valueY;
-          break;
-      }
-      set({ notchWidth: Math.max(0.25, snapv(nw)), notchDepth: Math.max(0.25, snapv(nd)) });
+      const signW = start.notchCorner === "ne" || start.notchCorner === "se" ? -1 : 1;
+      const signD = start.notchCorner === "sw" || start.notchCorner === "se" ? -1 : 1;
+      const nw = Math.max(0.25, snapv(start.notchWidth + signW * dxVal));
+      const nd = Math.max(0.25, snapv(start.notchDepth + signD * dyVal));
+      set({ notchWidth: nw, notchDepth: nd });
     }
   }
 
@@ -122,6 +96,8 @@ export function LShapeEditor({ value, onChange, unit = "ft" }: LShapeEditorProps
   }
 
   const notchPt = notchCornerPoint(value);
+  const widthX = widthHandleX(value.overallW, value.notchCorner);
+  const depthY = depthHandleY(value.overallD, value.notchCorner);
   const handleR = 6;
 
   return (
@@ -142,9 +118,9 @@ export function LShapeEditor({ value, onChange, unit = "ft" }: LShapeEditorProps
             strokeLinejoin="round"
           />
 
-          {/* overall-width handle: right-middle edge, drag horizontally */}
+          {/* overall-width handle: sits on the full-length vertical edge opposite the notch */}
           <circle
-            cx={pw}
+            cx={widthX * scale}
             cy={pd / 2}
             r={handleR}
             fill="var(--bg-elevated)"
@@ -155,10 +131,10 @@ export function LShapeEditor({ value, onChange, unit = "ft" }: LShapeEditorProps
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
           />
-          {/* overall-depth handle: bottom-middle edge, drag vertically */}
+          {/* overall-depth handle: sits on the full-length horizontal edge opposite the notch */}
           <circle
             cx={pw / 2}
-            cy={pd}
+            cy={depthY * scale}
             r={handleR}
             fill="var(--bg-elevated)"
             stroke="var(--accent)"

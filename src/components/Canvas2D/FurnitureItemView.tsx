@@ -3,12 +3,36 @@ import type { Footprint, Item } from "../../model/types";
 import type { Vec2 } from "../../geometry/types";
 import { localPolygon, footprintSize, repositionForResize } from "../../geometry/shape";
 import { centroid, snap } from "../../geometry/polygon";
+import {
+  deriveLShapeParams,
+  lShapePolygon,
+  notchCornerPoint,
+  widthHandleX,
+  depthHandleY,
+  widthHandleOnRight,
+  depthHandleOnBottom,
+} from "../../geometry/lshape";
 import { INCH_FT, formatLengthCompact } from "../../format/length";
 import { screenToSvgPoint } from "./svgPoint";
 
 const MIN_SIZE = 0.25; // 3 inches
 
-type ResizeEdge = "n" | "s" | "e" | "w" | "r";
+type ResizeEdge = "n" | "s" | "e" | "w" | "r" | "width" | "depth" | "notch";
+
+/**
+ * CSS resize-cursor for a handle that slides along a given local axis, accounting for the
+ * item's own rotation — cursor icons are drawn in screen space and are NOT rotated by the
+ * SVG transform, so a handle on a vertical edge of a 90deg-rotated item needs a vertical
+ * (ns-resize) cursor even though it's the item's local "x" axis.
+ */
+function axisResizeCursor(rotDeg: number, axis: "x" | "y"): string {
+  const angle = axis === "x" ? rotDeg : rotDeg + 90;
+  const norm = ((angle % 180) + 180) % 180;
+  if (norm < 22.5 || norm >= 157.5) return "ew-resize";
+  if (norm < 67.5) return "nesw-resize";
+  if (norm < 112.5) return "ns-resize";
+  return "nwse-resize";
+}
 
 interface FurnitureItemViewProps {
   item: Item;
@@ -76,6 +100,46 @@ function computeResize(
     return { footprint: { kind: "circle", r: newR }, pos: newPos };
   }
 
+  if (footprint.kind === "poly") {
+    const params = deriveLShapeParams(footprint.points);
+    if (!params) return { footprint, pos };
+    const corner = params.notchCorner;
+    const next = { ...params };
+    let anchorOld: Vec2 = { x: 0, y: 0 };
+    let anchorNew: Vec2 = { x: 0, y: 0 };
+
+    if (edge === "width") {
+      if (widthHandleOnRight(corner)) {
+        next.overallW = Math.max(MIN_SIZE, snapVal(params.overallW + localDx));
+      } else {
+        next.overallW = Math.max(MIN_SIZE, snapVal(params.overallW - localDx));
+        anchorOld = { x: params.overallW, y: 0 };
+        anchorNew = { x: next.overallW, y: 0 };
+      }
+      next.notchWidth = Math.min(params.notchWidth, next.overallW - MIN_SIZE);
+    } else if (edge === "depth") {
+      if (depthHandleOnBottom(corner)) {
+        next.overallD = Math.max(MIN_SIZE, snapVal(params.overallD + localDy));
+      } else {
+        next.overallD = Math.max(MIN_SIZE, snapVal(params.overallD - localDy));
+        anchorOld = { x: 0, y: params.overallD };
+        anchorNew = { x: 0, y: next.overallD };
+      }
+      next.notchDepth = Math.min(params.notchDepth, next.overallD - MIN_SIZE);
+    } else if (edge === "notch") {
+      const signW = corner === "ne" || corner === "se" ? -1 : 1;
+      const signD = corner === "sw" || corner === "se" ? -1 : 1;
+      next.notchWidth = Math.min(Math.max(MIN_SIZE, snapVal(params.notchWidth + signW * localDx)), params.overallW - MIN_SIZE);
+      next.notchDepth = Math.min(Math.max(MIN_SIZE, snapVal(params.notchDepth + signD * localDy)), params.overallD - MIN_SIZE);
+    }
+
+    const newPoints = lShapePolygon(next.overallW, next.overallD, next.notchCorner, next.notchWidth, next.notchDepth);
+    const oldCenter = centroid(footprint.points);
+    const newCenter = centroid(newPoints);
+    const newPos = repositionForResize(pos, rotDeg, oldCenter, newCenter, anchorOld, anchorNew);
+    return { footprint: { kind: "poly", points: newPoints }, pos: newPos };
+  }
+
   return { footprint, pos };
 }
 
@@ -98,6 +162,10 @@ export function FurnitureItemView({
   const local = useMemo(() => localPolygon(item.footprint), [item.footprint]);
   const center = useMemo(() => centroid(local), [local]);
   const size = useMemo(() => footprintSize(item.footprint), [item.footprint]);
+  const lshapeParams = useMemo(
+    () => (item.footprint.kind === "poly" ? deriveLShapeParams(item.footprint.points) : null),
+    [item.footprint],
+  );
 
   const dragRef = useRef<
     | { mode: "move"; startSvg: Vec2; startPos: Vec2 }
@@ -239,17 +307,25 @@ export function FurnitureItemView({
   const fontSize = 10.5 * unitsPerPixel;
 
   const resizeHandleR = 4.5 * unitsPerPixel;
+  const xCursor = axisResizeCursor(item.rotDeg, "x");
+  const yCursor = axisResizeCursor(item.rotDeg, "y");
   const resizeHandles: { edge: ResizeEdge; pos: Vec2; cursor: string }[] =
     item.footprint.kind === "rect"
       ? [
-          { edge: "e", pos: { x: item.footprint.w, y: item.footprint.d / 2 }, cursor: "ew-resize" },
-          { edge: "w", pos: { x: 0, y: item.footprint.d / 2 }, cursor: "ew-resize" },
-          { edge: "n", pos: { x: item.footprint.w / 2, y: 0 }, cursor: "ns-resize" },
-          { edge: "s", pos: { x: item.footprint.w / 2, y: item.footprint.d }, cursor: "ns-resize" },
+          { edge: "e", pos: { x: item.footprint.w, y: item.footprint.d / 2 }, cursor: xCursor },
+          { edge: "w", pos: { x: 0, y: item.footprint.d / 2 }, cursor: xCursor },
+          { edge: "n", pos: { x: item.footprint.w / 2, y: 0 }, cursor: yCursor },
+          { edge: "s", pos: { x: item.footprint.w / 2, y: item.footprint.d }, cursor: yCursor },
         ]
       : item.footprint.kind === "circle"
-        ? [{ edge: "r", pos: { x: item.footprint.r * 2, y: item.footprint.r }, cursor: "ew-resize" }]
-        : [];
+        ? [{ edge: "r", pos: { x: item.footprint.r * 2, y: item.footprint.r }, cursor: xCursor }]
+        : item.footprint.kind === "poly" && lshapeParams
+          ? [
+              { edge: "width", pos: { x: widthHandleX(lshapeParams.overallW, lshapeParams.notchCorner), y: lshapeParams.overallD / 2 }, cursor: xCursor },
+              { edge: "depth", pos: { x: lshapeParams.overallW / 2, y: depthHandleY(lshapeParams.overallD, lshapeParams.notchCorner) }, cursor: yCursor },
+              { edge: "notch", pos: notchCornerPoint(lshapeParams), cursor: "move" },
+            ]
+          : [];
 
   return (
     <g

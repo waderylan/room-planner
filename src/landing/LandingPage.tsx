@@ -48,12 +48,6 @@ function Boot({ onDone }: { onDone: () => void }) {
   );
 }
 
-const WORDS: Record<number, { text: string; cls: string }> = {
-  1: { text: "BUILD IT", cls: "landing-word left yellow" },
-  2: { text: "STACK IT", cls: "landing-word right white" },
-  3: { text: "WALK IT", cls: "landing-word left green" },
-};
-
 export interface LandingPageProps {
   onEnter: () => void;
 }
@@ -108,7 +102,6 @@ export function LandingPage({ onEnter }: LandingPageProps) {
   }, [onEnter]);
 
   const skipToEnd = () => window.scrollTo(0, document.documentElement.scrollHeight);
-  const word = WORDS[phase];
 
   return (
     <div className="landing">
@@ -132,8 +125,6 @@ export function LandingPage({ onEnter }: LandingPageProps) {
           </div>
         </div>
       )}
-
-      {word && <div className={word.cls}>{word.text}</div>}
 
       {phase === 4 && (
         <div className="landing-finale">

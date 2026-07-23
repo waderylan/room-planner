@@ -63,14 +63,13 @@ export function LandingPage({ onEnter }: LandingPageProps) {
     () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     [],
   );
-  const [boot, setBoot] = useState(!reduced);
-  const [phase, setPhase] = useState(reduced ? 4 : 0);
-  const progressTarget = useRef(reduced ? 0.98 : 0);
+  const [boot, setBoot] = useState(true);
+  const [phase, setPhase] = useState(0);
+  const progressTarget = useRef(0);
   const mouse = useRef({ x: 0, y: 0 });
-  const atFinale = useRef(reduced);
+  const atFinale = useRef(false);
 
   useEffect(() => {
-    if (reduced) return;
     const onScroll = () => {
       const max = document.documentElement.scrollHeight - window.innerHeight;
       const p = max > 0 ? window.scrollY / max : 0;
@@ -83,7 +82,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, [reduced]);
+  }, []);
 
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
@@ -119,7 +118,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
 
       <div className="landing-title">ROOM PLANNER</div>
 
-      <div className="landing-spacer" style={{ height: reduced ? "100vh" : "600vh" }} />
+      <div className="landing-spacer" style={{ height: "600vh" }} />
 
       {phase === 0 && (
         <div className="landing-hero">
@@ -129,7 +128,6 @@ export function LandingPage({ onEnter }: LandingPageProps) {
               <br />
               PLANNER
             </h1>
-            <p className="landing-sub">PLAN YOUR SPACE IN 128 BITS</p>
             <p className="landing-scrollhint blink">▼</p>
           </div>
         </div>
@@ -148,7 +146,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
       )}
 
       <div className="landing-legend">
-        {phase < 4 && !reduced ? (
+        {phase < 4 ? (
           <>
             <button onClick={skipToEnd}>
               <XGlyph size={16} /> SKIP
@@ -160,11 +158,9 @@ export function LandingPage({ onEnter }: LandingPageProps) {
             <button onClick={onEnter}>
               <XGlyph size={16} /> ENTER
             </button>
-            {!reduced && (
-              <button onClick={() => window.scrollTo(0, 0)}>
-                <OGlyph size={16} /> TOP
-              </button>
-            )}
+            <button onClick={() => window.scrollTo(0, 0)}>
+              <OGlyph size={16} /> TOP
+            </button>
           </>
         )}
       </div>

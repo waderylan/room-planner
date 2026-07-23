@@ -404,7 +404,7 @@ interface RigProps {
 }
 
 function Rig({ progressTarget, mouse, reduced }: RigProps) {
-  const sp = useRef(reduced ? 0.98 : 0);
+  const sp = useRef(0);
   const spin = useRef(0);
   const sm = useRef({ x: 0, y: 0 });
   const floorRef = useRef<THREE.Group>(null);
@@ -413,12 +413,14 @@ function Rig({ progressTarget, mouse, reduced }: RigProps) {
 
   useFrame((state, rawDt) => {
     const dt = Math.min(rawDt, 0.05);
-    const target = reduced ? 0.98 : progressTarget.current;
+    const target = progressTarget.current;
     sp.current += (target - sp.current) * (1 - Math.exp(-dt * 5.5));
     const p = sp.current;
-    sm.current.x += (mouse.current.x - sm.current.x) * (1 - Math.exp(-dt * 4));
-    sm.current.y += (mouse.current.y - sm.current.y) * (1 - Math.exp(-dt * 4));
-    if (!reduced) spin.current += dt * spinSpeed(p);
+    if (!reduced) {
+      sm.current.x += (mouse.current.x - sm.current.x) * (1 - Math.exp(-dt * 4));
+      sm.current.y += (mouse.current.y - sm.current.y) * (1 - Math.exp(-dt * 4));
+      spin.current += dt * spinSpeed(p);
+    }
 
     const floor = floorRef.current;
     if (floor) {

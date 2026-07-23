@@ -67,6 +67,35 @@ export function worldAxes(rotDeg: number): { xAxis: Vec2; yAxis: Vec2 } {
   };
 }
 
+/**
+ * Given an item being resized (footprint center moving from oldCenter to newCenter, in local
+ * footprint space), compute the new `pos` that keeps a chosen anchor point fixed in world space.
+ * `anchorLocalOld`/`anchorLocalNew` are the same physical point expressed in the old and new
+ * local footprint spaces (e.g. the opposite edge/corner from the one being dragged, or the
+ * center itself for a symmetric resize). Mirrors the rotate-about-center-then-translate model
+ * used by `worldPolygon`.
+ */
+export function repositionForResize(
+  pos: Vec2,
+  rotDeg: number,
+  oldCenter: Vec2,
+  newCenter: Vec2,
+  anchorLocalOld: Vec2,
+  anchorLocalNew: Vec2,
+): Vec2 {
+  const { xAxis, yAxis } = worldAxes(rotDeg);
+  const toWorld = (v: Vec2): Vec2 => ({
+    x: v.x * xAxis.x + v.y * yAxis.x,
+    y: v.x * xAxis.y + v.y * yAxis.y,
+  });
+  const anchorWorld = {
+    x: pos.x + oldCenter.x + toWorld({ x: anchorLocalOld.x - oldCenter.x, y: anchorLocalOld.y - oldCenter.y }).x,
+    y: pos.y + oldCenter.y + toWorld({ x: anchorLocalOld.x - oldCenter.x, y: anchorLocalOld.y - oldCenter.y }).y,
+  };
+  const rotNew = toWorld({ x: anchorLocalNew.x - newCenter.x, y: anchorLocalNew.y - newCenter.y });
+  return { x: anchorWorld.x - newCenter.x - rotNew.x, y: anchorWorld.y - newCenter.y - rotNew.y };
+}
+
 export function worldCenter(item: Pick<Item, "footprint" | "pos" | "rotDeg">): Vec2 {
   const local = localPolygon(item.footprint);
   const c = centroid(local);

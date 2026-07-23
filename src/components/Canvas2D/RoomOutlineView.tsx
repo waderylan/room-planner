@@ -2,6 +2,7 @@ import type { Vec2 } from "../../geometry/types";
 import type { Opening } from "../../model/types";
 import { centroid } from "../../geometry/polygon";
 import { openingSpan } from "../../geometry/openings";
+import { formatLength } from "../../format/length";
 
 interface RoomOutlineViewProps {
   outline: Vec2[];
@@ -85,7 +86,7 @@ export function RoomOutlineView({ outline, openings, unit, unitsPerPixel }: Room
                 Wall {i + 1}
               </tspan>
               <tspan x={labelPos.x} dy={fontSize * 1.1} fontSize={fontSize * 0.92} fontWeight={500} className="tabular-nums" fill="var(--text-muted)">
-                {length.toFixed(2)} {unit}
+                {formatLength(length, unit)}
               </tspan>
             </text>
           </g>

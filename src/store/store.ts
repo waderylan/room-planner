@@ -80,6 +80,7 @@ interface StoreState {
   updateItem: (id: string, patch: Partial<Item>) => void;
   moveItem: (id: string, pos: Item["pos"], opts?: { skipSnap?: boolean; skipClamp?: boolean }) => void;
   rotateItem: (id: string, rotDeg: number) => void;
+  resizeItem: (id: string, footprint: Item["footprint"], pos: Item["pos"], opts?: { skipClamp?: boolean }) => void;
   deleteItem: (id: string) => void;
   duplicateItem: (id: string) => void;
   copyItemToRoom: (itemId: string, targetRoomId: string) => void;
@@ -275,6 +276,17 @@ export const useStore = create<StoreState>()((set, get) => {
           const rotated = { ...it, rotDeg: normalized };
           const pos = clampPolygonInside(rotated, r.outline);
           return { ...rotated, pos };
+        }),
+      })),
+    resizeItem: (id, footprint, pos, opts) =>
+      updateActiveRoom((r) => ({
+        ...r,
+        items: r.items.map((it) => {
+          if (it.id !== id) return it;
+          const resized = { ...it, footprint, pos };
+          if (opts?.skipClamp) return resized;
+          const clamped = clampPolygonInside(resized, r.outline);
+          return { ...resized, pos: clamped };
         }),
       })),
     deleteItem: (id) =>

@@ -1,5 +1,6 @@
 import { useStore } from "../../store/store";
 import { footprintSize } from "../../geometry/shape";
+import { formatLengthCompact } from "../../format/length";
 import { Copy, Eye, EyeSlash, Trash, ArrowsClockwise } from "@phosphor-icons/react";
 import { Menu } from "../ui/Menu";
 import { IconButton } from "../ui/IconButton";
@@ -50,9 +51,9 @@ export function ItemList() {
                       {item.name}
                     </div>
                     <div className="tabular-nums text-[10px] text-[var(--text-faint)]">
-                      {size.w.toFixed(1)}
+                      {formatLengthCompact(size.w, room.unit)}
                       {"×"}
-                      {size.d.toFixed(1)} {room.unit}
+                      {formatLengthCompact(size.d, room.unit)}
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">

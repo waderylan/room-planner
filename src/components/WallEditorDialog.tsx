@@ -3,7 +3,7 @@ import { useStore } from "../store/store";
 import { wallSegments } from "../geometry/openings";
 import type { DoorHinge } from "../model/types";
 import { Dialog } from "./ui/Dialog";
-import { NumberField } from "./ui/NumberField";
+import { LengthField } from "./ui/LengthField";
 import { Segmented } from "./ui/Segmented";
 import { Button } from "./ui/Button";
 
@@ -136,44 +136,40 @@ export function WallEditorDialog({ wallIndex, openingId, onClose }: WallEditorDi
         </svg>
 
         <div className="grid grid-cols-2 gap-2">
-          <NumberField
+          <LengthField
             label="Width"
             value={opening.width}
             onChange={(v) => updateOpening(opening.id, { width: v })}
-            suffix={room.unit}
-            step={0.25}
+            unit={room.unit}
             min={0.5}
           />
-          <NumberField
+          <LengthField
             label="Height"
             value={opening.height}
             onChange={(v) => updateOpening(opening.id, { height: v })}
-            suffix={room.unit}
-            step={0.25}
+            unit={room.unit}
             min={0.5}
           />
-          <NumberField
+          <LengthField
             label="Offset from left"
             value={opening.offset}
             onChange={(v) => updateOpening(opening.id, { offset: v })}
-            suffix={room.unit}
-            step={0.25}
+            unit={room.unit}
             min={0}
           />
           {opening.kind === "window" ? (
-            <NumberField
+            <LengthField
               label="Sill height"
               value={opening.sillHeight}
               onChange={(v) => updateOpening(opening.id, { sillHeight: v })}
-              suffix={room.unit}
-              step={0.25}
+              unit={room.unit}
               min={0}
             />
           ) : (
             <label className="flex flex-col gap-1">
               <span className="text-xs text-[var(--text-muted)]">Sill height</span>
               <div className="flex h-8 items-center rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 text-xs text-[var(--text-faint)]">
-                Floor (0 {room.unit})
+                Floor
               </div>
             </label>
           )}

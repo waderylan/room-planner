@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../../store/store";
 import type { Vec2 } from "../../geometry/types";
+import type { Footprint } from "../../model/types";
 import { worldPolygon, isFullyInside } from "../../geometry/shape";
 import { polygonsIntersect } from "../../geometry/polygon";
 import { fitViewBox, viewBoxString, zoomViewBox, panViewBox, type ViewBox } from "./viewBox";
@@ -17,12 +18,13 @@ export function Canvas2D() {
   const selectItem = useStore((s) => s.selectItem);
   const moveItem = useStore((s) => s.moveItem);
   const rotateItem = useStore((s) => s.rotateItem);
+  const resizeItem = useStore((s) => s.resizeItem);
   const snapEnabled = useStore((s) => s.snapEnabled);
   const snapStep = useStore((s) => s.snapStep);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [viewBox, setViewBox] = useState<ViewBox>(() => fitViewBox(room.outline));
-  const [drag, setDrag] = useState<{ id: string; pos: Vec2; rotDeg: number } | null>(null);
+  const [drag, setDrag] = useState<{ id: string; pos: Vec2; rotDeg: number; footprint?: Footprint } | null>(null);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const panRef = useRef<{ startClient: Vec2; startVb: ViewBox } | null>(null);
 
@@ -51,7 +53,9 @@ export function Canvas2D() {
 
   const effectiveItems = useMemo(() => {
     if (!drag) return room.items;
-    return room.items.map((it) => (it.id === drag.id ? { ...it, pos: drag.pos, rotDeg: drag.rotDeg } : it));
+    return room.items.map((it) =>
+      it.id === drag.id ? { ...it, pos: drag.pos, rotDeg: drag.rotDeg, footprint: drag.footprint ?? it.footprint } : it,
+    );
   }, [room.items, drag]);
 
   const invalidIds = useMemo(() => {
@@ -162,6 +166,11 @@ export function Canvas2D() {
               onCommitRotate={(id, rotDeg) => {
                 setDrag(null);
                 rotateItem(id, rotDeg);
+              }}
+              onLiveResize={(id, footprint, pos) => setDrag({ id, pos, rotDeg: item.rotDeg, footprint })}
+              onCommitResize={(id, footprint, pos) => {
+                setDrag(null);
+                resizeItem(id, footprint, pos);
               }}
             />
           ))}

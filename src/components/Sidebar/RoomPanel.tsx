@@ -3,7 +3,8 @@ import { v4 as uuid } from "uuid";
 import { useStore } from "../../store/store";
 import type { AlcoveWall, OpeningKind, RoomShape } from "../../model/types";
 import { wallSegments } from "../../geometry/openings";
-import { NumberField } from "../ui/NumberField";
+import { formatLength, formatLengthCompact } from "../../format/length";
+import { LengthField } from "../ui/LengthField";
 import { Segmented } from "../ui/Segmented";
 import { Button } from "../ui/Button";
 import { LShapeEditor } from "../LShapeEditor";
@@ -94,20 +95,18 @@ export function RoomPanel() {
 
       {shape.kind === "rect" ? (
         <div className="grid grid-cols-2 gap-2">
-          <NumberField
+          <LengthField
             label="Width"
             value={shape.width}
             onChange={(v) => setRoomShape({ ...shape, width: Math.max(1, v) })}
-            suffix={room.unit}
-            step={0.25}
+            unit={room.unit}
             min={1}
           />
-          <NumberField
+          <LengthField
             label="Length"
             value={shape.length}
             onChange={(v) => setRoomShape({ ...shape, length: Math.max(1, v) })}
-            suffix={room.unit}
-            step={0.25}
+            unit={room.unit}
             min={1}
           />
         </div>
@@ -134,12 +133,11 @@ export function RoomPanel() {
         />
       )}
 
-      <NumberField
+      <LengthField
         label="Ceiling height"
         value={room.ceiling}
         onChange={(v) => setRoomCeiling(Math.max(1, v))}
-        suffix={room.unit}
-        step={0.25}
+        unit={room.unit}
         min={1}
       />
 
@@ -154,9 +152,9 @@ export function RoomPanel() {
               className="flex items-center justify-between rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1.5 text-xs"
             >
               <span>
-                {WALL_LABELS[a.wall]} wall, {a.width}
+                {WALL_LABELS[a.wall]} wall, {formatLengthCompact(a.width, room.unit)}
                 {"×"}
-                {a.depth} {room.unit}
+                {formatLengthCompact(a.depth, room.unit)}
               </span>
               <button
                 aria-label="Remove alcove"
@@ -182,9 +180,9 @@ export function RoomPanel() {
             />
           </div>
           <div className="grid grid-cols-3 gap-1.5">
-            <NumberField label="Width" value={alcoveWidth} onChange={setAlcoveWidth} step={0.25} min={0.5} />
-            <NumberField label="Depth" value={alcoveDepth} onChange={setAlcoveDepth} step={0.25} min={0.5} />
-            <NumberField label="Offset" value={alcoveOffset} onChange={setAlcoveOffset} step={0.25} min={0} />
+            <LengthField label="Width" value={alcoveWidth} onChange={setAlcoveWidth} unit={room.unit} min={0.5} />
+            <LengthField label="Depth" value={alcoveDepth} onChange={setAlcoveDepth} unit={room.unit} min={0.5} />
+            <LengthField label="Offset" value={alcoveOffset} onChange={setAlcoveOffset} unit={room.unit} min={0} />
           </div>
           <Button
             size="sm"
@@ -210,7 +208,7 @@ export function RoomPanel() {
               >
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-[var(--text-muted)]">
-                    Wall {wall.index + 1} <span className="tabular-nums text-[var(--text-faint)]">({wall.length.toFixed(1)} {room.unit})</span>
+                    Wall {wall.index + 1} <span className="tabular-nums text-[var(--text-faint)]">({formatLength(wall.length, room.unit)})</span>
                   </span>
                   <div className="flex items-center gap-1">
                     <Button size="sm" variant="ghost" icon={<SquareHalf size={13} />} onClick={() => addOpeningToWall(wall.index, "window")}>
@@ -230,7 +228,7 @@ export function RoomPanel() {
                         className="flex items-center gap-1 rounded-[6px] border border-[var(--border)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] transition-colors duration-150 hover:border-[var(--border-strong)] hover:text-[var(--text)]"
                       >
                         {o.kind === "door" ? <DoorOpen size={11} /> : <SquareHalf size={11} />}
-                        {o.width.toFixed(1)} {room.unit}
+                        {formatLengthCompact(o.width, room.unit)}
                       </button>
                     ))}
                   </div>

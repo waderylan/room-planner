@@ -1,9 +1,14 @@
 import { useMemo, useRef, type RefObject } from "react";
-import type { Item } from "../../model/types";
+import type { Footprint, Item } from "../../model/types";
 import type { Vec2 } from "../../geometry/types";
-import { localPolygon, footprintSize } from "../../geometry/shape";
+import { localPolygon, footprintSize, repositionForResize } from "../../geometry/shape";
 import { centroid, snap } from "../../geometry/polygon";
+import { INCH_FT, formatLengthCompact } from "../../format/length";
 import { screenToSvgPoint } from "./svgPoint";
+
+const MIN_SIZE = 0.25; // 3 inches
+
+type ResizeEdge = "n" | "s" | "e" | "w" | "r";
 
 interface FurnitureItemViewProps {
   item: Item;
@@ -18,6 +23,60 @@ interface FurnitureItemViewProps {
   onLiveUpdate: (id: string, pos: Vec2, rotDeg: number) => void;
   onCommitMove: (id: string, pos: Vec2, skipSnap: boolean) => void;
   onCommitRotate: (id: string, rotDeg: number) => void;
+  onLiveResize: (id: string, footprint: Footprint, pos: Vec2) => void;
+  onCommitResize: (id: string, footprint: Footprint, pos: Vec2) => void;
+}
+
+/** Compute the resized footprint + repositioned pos for a single-edge (or radius) drag, anchoring the opposite edge/center in world space. */
+function computeResize(
+  edge: ResizeEdge,
+  footprint: Footprint,
+  pos: Vec2,
+  rotDeg: number,
+  localDx: number,
+  localDy: number,
+  skipSnap: boolean,
+): { footprint: Footprint; pos: Vec2 } {
+  const snapVal = (v: number) => (skipSnap ? v : snap(v, INCH_FT));
+
+  if (footprint.kind === "rect") {
+    const { w, d } = footprint;
+    let newW = w;
+    let newD = d;
+    let anchorOld: Vec2;
+    let anchorNew: Vec2;
+    if (edge === "e") {
+      newW = Math.max(MIN_SIZE, snapVal(w + localDx));
+      anchorOld = { x: 0, y: d / 2 };
+      anchorNew = { x: 0, y: d / 2 };
+    } else if (edge === "w") {
+      newW = Math.max(MIN_SIZE, snapVal(w - localDx));
+      anchorOld = { x: w, y: d / 2 };
+      anchorNew = { x: newW, y: d / 2 };
+    } else if (edge === "s") {
+      newD = Math.max(MIN_SIZE, snapVal(d + localDy));
+      anchorOld = { x: w / 2, y: 0 };
+      anchorNew = { x: w / 2, y: 0 };
+    } else {
+      newD = Math.max(MIN_SIZE, snapVal(d - localDy));
+      anchorOld = { x: w / 2, y: d };
+      anchorNew = { x: w / 2, y: newD };
+    }
+    const oldCenter = { x: w / 2, y: d / 2 };
+    const newCenter = { x: newW / 2, y: newD / 2 };
+    const newPos = repositionForResize(pos, rotDeg, oldCenter, newCenter, anchorOld, anchorNew);
+    return { footprint: { kind: "rect", w: newW, d: newD }, pos: newPos };
+  }
+
+  if (footprint.kind === "circle") {
+    const newR = Math.max(MIN_SIZE / 2, snapVal(footprint.r + localDx));
+    const oldCenter = { x: footprint.r, y: footprint.r };
+    const newCenter = { x: newR, y: newR };
+    const newPos = repositionForResize(pos, rotDeg, oldCenter, newCenter, oldCenter, newCenter);
+    return { footprint: { kind: "circle", r: newR }, pos: newPos };
+  }
+
+  return { footprint, pos };
 }
 
 export function FurnitureItemView({
@@ -33,14 +92,22 @@ export function FurnitureItemView({
   onLiveUpdate,
   onCommitMove,
   onCommitRotate,
+  onLiveResize,
+  onCommitResize,
 }: FurnitureItemViewProps) {
   const local = useMemo(() => localPolygon(item.footprint), [item.footprint]);
   const center = useMemo(() => centroid(local), [local]);
   const size = useMemo(() => footprintSize(item.footprint), [item.footprint]);
 
-  const dragRef = useRef<{ mode: "move"; startSvg: Vec2; startPos: Vec2 } | { mode: "rotate" } | null>(null);
+  const dragRef = useRef<
+    | { mode: "move"; startSvg: Vec2; startPos: Vec2 }
+    | { mode: "rotate" }
+    | { mode: "resize"; edge: ResizeEdge; startSvg: Vec2; startFootprint: Footprint; startPos: Vec2 }
+    | null
+  >(null);
   const lastPosRef = useRef(item.pos);
   const lastRotRef = useRef(item.rotDeg);
+  const lastResizeRef = useRef<{ footprint: Footprint; pos: Vec2 }>({ footprint: item.footprint, pos: item.pos });
 
   const points = local.map((p) => `${p.x},${p.y}`).join(" ");
   const strokeColor = invalid ? "var(--danger)" : selected ? "var(--accent)" : "rgba(0,0,0,0.25)";
@@ -126,8 +193,63 @@ export function FurnitureItemView({
     onCommitRotate(item.id, lastRotRef.current);
   }
 
-  const dimLabel = item.footprint.kind === "circle" ? `r${size.w / 2}` : `${size.w.toFixed(1)}×${size.d.toFixed(1)}`;
+  function handleResizePointerDown(edge: ResizeEdge, e: React.PointerEvent) {
+    e.stopPropagation();
+    onSelect(item.id);
+    const svg = svgRef.current;
+    if (!svg) return;
+    (e.target as Element).setPointerCapture(e.pointerId);
+    const startSvg = screenToSvgPoint(svg, e.clientX, e.clientY);
+    dragRef.current = { mode: "resize", edge, startSvg, startFootprint: item.footprint, startPos: item.pos };
+    lastResizeRef.current = { footprint: item.footprint, pos: item.pos };
+  }
+
+  function handleResizePointerMove(e: React.PointerEvent) {
+    const drag = dragRef.current;
+    if (!drag || drag.mode !== "resize") return;
+    const svg = svgRef.current;
+    if (!svg) return;
+    const cur = screenToSvgPoint(svg, e.clientX, e.clientY);
+    const dx = cur.x - drag.startSvg.x;
+    const dy = cur.y - drag.startSvg.y;
+    const rad = (item.rotDeg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    // project the world-space drag delta onto the item's own (rotated) local axes
+    const localDx = dx * cos + dy * sin;
+    const localDy = -dx * sin + dy * cos;
+    const skipSnap = e.altKey;
+    const result = computeResize(drag.edge, drag.startFootprint, drag.startPos, item.rotDeg, localDx, localDy, skipSnap);
+    lastResizeRef.current = result;
+    onLiveResize(item.id, result.footprint, result.pos);
+  }
+
+  function handleResizePointerUp(e: React.PointerEvent) {
+    const drag = dragRef.current;
+    if (!drag || drag.mode !== "resize") return;
+    (e.target as Element).releasePointerCapture(e.pointerId);
+    dragRef.current = null;
+    onCommitResize(item.id, lastResizeRef.current.footprint, lastResizeRef.current.pos);
+  }
+
+  const dimLabel =
+    item.footprint.kind === "circle"
+      ? `⌀${formatLengthCompact(size.w, unit)}`
+      : `${formatLengthCompact(size.w, unit)}×${formatLengthCompact(size.d, unit)}`;
   const fontSize = 10.5 * unitsPerPixel;
+
+  const resizeHandleR = 4.5 * unitsPerPixel;
+  const resizeHandles: { edge: ResizeEdge; pos: Vec2; cursor: string }[] =
+    item.footprint.kind === "rect"
+      ? [
+          { edge: "e", pos: { x: item.footprint.w, y: item.footprint.d / 2 }, cursor: "ew-resize" },
+          { edge: "w", pos: { x: 0, y: item.footprint.d / 2 }, cursor: "ew-resize" },
+          { edge: "n", pos: { x: item.footprint.w / 2, y: 0 }, cursor: "ns-resize" },
+          { edge: "s", pos: { x: item.footprint.w / 2, y: item.footprint.d }, cursor: "ns-resize" },
+        ]
+      : item.footprint.kind === "circle"
+        ? [{ edge: "r", pos: { x: item.footprint.r * 2, y: item.footprint.r }, cursor: "ew-resize" }]
+        : [];
 
   return (
     <g
@@ -186,7 +308,7 @@ export function FurnitureItemView({
           strokeWidth={fontSize * 0.2}
           paintOrder="stroke"
         >
-          {dimLabel} {unit}
+          {dimLabel}
         </text>
       </g>
 
@@ -218,6 +340,26 @@ export function FurnitureItemView({
           style={{ cursor: "grab" }}
         />
       )}
+
+      {selected &&
+        resizeHandles.map((h) => (
+          <rect
+            key={h.edge}
+            x={h.pos.x - resizeHandleR}
+            y={h.pos.y - resizeHandleR}
+            width={resizeHandleR * 2}
+            height={resizeHandleR * 2}
+            rx={resizeHandleR * 0.35}
+            fill="var(--bg-elevated)"
+            stroke="var(--accent)"
+            strokeWidth={1.5}
+            vectorEffect="non-scaling-stroke"
+            style={{ cursor: h.cursor }}
+            onPointerDown={(e) => handleResizePointerDown(h.edge, e)}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={handleResizePointerUp}
+          />
+        ))}
     </g>
   );
 }

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { Item, MeasureMode } from "../../model/types";
 import type { Vec2 } from "../../geometry/types";
 import { computeClearance } from "../../geometry/clearance";
+import { formatLength } from "../../format/length";
 
 const TOUCH_THRESHOLD = 0.25;
 
@@ -68,7 +69,7 @@ export function Measurements({ item, outline, otherItems, mode, unit, unitsPerPi
               strokeWidth={fontSize * 0.28}
               paintOrder="stroke"
             >
-              {touching ? "touching" : `${gap.distance.toFixed(2)} ${unit}`}
+              {touching ? "touching" : formatLength(gap.distance, unit)}
             </text>
           </g>
         );
@@ -108,7 +109,7 @@ export function Measurements({ item, outline, otherItems, mode, unit, unitsPerPi
               strokeWidth={fontSize * 0.32}
               paintOrder="stroke"
             >
-              Closest: {touching ? "touching" : `${c.distance.toFixed(2)} ${unit}`}
+              Closest: {touching ? "touching" : formatLength(c.distance, unit)}
             </text>
           </g>
         );

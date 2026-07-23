@@ -3,6 +3,7 @@ import type { Footprint } from "../../model/types";
 import { footprintSize } from "../../geometry/shape";
 import { deriveLShapeParams, lShapePolygon } from "../../geometry/lshape";
 import { NumberField } from "../ui/NumberField";
+import { LengthField } from "../ui/LengthField";
 import { Segmented } from "../ui/Segmented";
 import { LShapeEditor } from "../LShapeEditor";
 
@@ -77,32 +78,29 @@ export function Inspector() {
 
       {kind === "rect" && item.footprint.kind === "rect" && (
         <div className="grid grid-cols-2 gap-2">
-          <NumberField
+          <LengthField
             label="Width"
             value={item.footprint.w}
             onChange={(v) => updateItem(item.id, { footprint: { kind: "rect", w: Math.max(0.25, v), d: (item.footprint as { d: number }).d } })}
-            suffix={room.unit}
-            step={0.25}
+            unit={room.unit}
             min={0.25}
           />
-          <NumberField
+          <LengthField
             label="Depth"
             value={item.footprint.d}
             onChange={(v) => updateItem(item.id, { footprint: { kind: "rect", w: (item.footprint as { w: number }).w, d: Math.max(0.25, v) } })}
-            suffix={room.unit}
-            step={0.25}
+            unit={room.unit}
             min={0.25}
           />
         </div>
       )}
 
       {kind === "circle" && item.footprint.kind === "circle" && (
-        <NumberField
+        <LengthField
           label="Radius"
           value={item.footprint.r}
           onChange={(v) => updateItem(item.id, { footprint: { kind: "circle", r: Math.max(0.1, v) } })}
-          suffix={room.unit}
-          step={0.1}
+          unit={room.unit}
           min={0.1}
         />
       )}
@@ -128,8 +126,8 @@ export function Inspector() {
       )}
 
       <div className="grid grid-cols-2 gap-2">
-        <NumberField label="Height" value={item.height} onChange={(v) => updateItem(item.id, { height: Math.max(0.05, v) })} suffix={room.unit} step={0.1} min={0.05} />
-        <NumberField label="Elevation" value={item.elevation} onChange={(v) => updateItem(item.id, { elevation: Math.max(0, v) })} suffix={room.unit} step={0.1} min={0} />
+        <LengthField label="Height" value={item.height} onChange={(v) => updateItem(item.id, { height: Math.max(0.05, v) })} unit={room.unit} min={0.05} />
+        <LengthField label="Elevation" value={item.elevation} onChange={(v) => updateItem(item.id, { elevation: Math.max(0, v) })} unit={room.unit} min={0} />
       </div>
 
       <NumberField

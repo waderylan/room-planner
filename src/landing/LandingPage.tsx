@@ -61,14 +61,12 @@ export function LandingPage({ onEnter }: LandingPageProps) {
   const [phase, setPhase] = useState(0);
   const progressTarget = useRef(0);
   const mouse = useRef({ x: 0, y: 0 });
-  const atFinale = useRef(false);
 
   useEffect(() => {
     const onScroll = () => {
       const max = document.documentElement.scrollHeight - window.innerHeight;
       const p = max > 0 ? window.scrollY / max : 0;
       progressTarget.current = p;
-      atFinale.current = p >= PHASE.finale;
       setPhase(
         p < PHASE.floorB ? 0 : p < PHASE.wallsB ? 1 : p < PHASE.buildB ? 2 : p < PHASE.finale ? 3 : 4,
       );
@@ -91,8 +89,7 @@ export function LandingPage({ onEnter }: LandingPageProps) {
     const onKey = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
       if (k === "x" || k === "enter") {
-        if (atFinale.current) onEnter();
-        else window.scrollTo(0, document.documentElement.scrollHeight);
+        onEnter();
       } else if (k === "o") {
         window.scrollTo(0, 0);
       }

@@ -11,7 +11,10 @@ import { RoomOutlineView } from "./RoomOutlineView";
 import { FurnitureItemView } from "./FurnitureItemView";
 import { Measurements } from "./Measurements";
 import { IconButton } from "../ui/IconButton";
-import { ArrowsOutSimple } from "@phosphor-icons/react";
+import { ArrowsOutSimple, MagnifyingGlassPlus, MagnifyingGlassMinus } from "@phosphor-icons/react";
+
+const WHEEL_ZOOM_FACTOR = 1.08;
+const BUTTON_ZOOM_FACTOR = 1.3;
 
 export function Canvas2D() {
   const room = useStore((s) => s.activeRoom());
@@ -85,13 +88,31 @@ export function Canvas2D() {
     return viewBox.w / rect.width;
   }
 
-  function handleWheel(e: React.WheelEvent<SVGSVGElement>) {
-    e.preventDefault();
+  useEffect(() => {
+    // Attached as a native (non-passive) listener rather than React's onWheel: React
+    // registers wheel handlers as passive by default, so calling preventDefault() from
+    // a JSX onWheel prop is silently ignored and the browser still pinch/ctrl-zooms the
+    // whole page on trackpads. A real addEventListener with { passive: false } is the
+    // only way to actually suppress that and keep the zoom scoped to the canvas.
     const svg = svgRef.current;
     if (!svg) return;
-    const center = screenToSvgPoint(svg, e.clientX, e.clientY);
-    const factor = e.deltaY > 0 ? 1.08 : 1 / 1.08;
-    setViewBox((vb) => zoomViewBox(vb, factor, center));
+    function onWheel(e: WheelEvent) {
+      e.preventDefault();
+      const center = screenToSvgPoint(svg!, e.clientX, e.clientY);
+      const factor = e.deltaY > 0 ? WHEEL_ZOOM_FACTOR : 1 / WHEEL_ZOOM_FACTOR;
+      setViewBox((vb) => zoomViewBox(vb, factor, center));
+    }
+    svg.addEventListener("wheel", onWheel, { passive: false });
+    return () => svg.removeEventListener("wheel", onWheel);
+  }, []);
+
+  function zoomByButton(factor: number) {
+    const svg = svgRef.current;
+    const rect = svg?.getBoundingClientRect();
+    setViewBox((vb) => {
+      const center = rect ? screenToSvgPoint(svg!, rect.left + rect.width / 2, rect.top + rect.height / 2) : { x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 };
+      return zoomViewBox(vb, factor, center);
+    });
   }
 
   function handleBackgroundPointerDown(e: React.PointerEvent<SVGSVGElement>) {
@@ -135,7 +156,6 @@ export function Canvas2D() {
         viewBox={viewBoxString(viewBox)}
         className="h-full w-full touch-none select-none"
         style={{ cursor: spaceHeld ? "grab" : "default" }}
-        onWheel={handleWheel}
         onPointerDown={handleBackgroundPointerDown}
         onPointerMove={handleBackgroundPointerMove}
         onPointerUp={handleBackgroundPointerUp}
@@ -192,6 +212,18 @@ export function Canvas2D() {
           aria-label="Fit to room"
           icon={<ArrowsOutSimple size={16} />}
           onClick={() => setViewBox(fitViewBox(room.outline))}
+          className="bg-[var(--bg-elevated)] border border-[var(--border)] shadow-[var(--shadow-sm)]"
+        />
+        <IconButton
+          aria-label="Zoom in"
+          icon={<MagnifyingGlassPlus size={16} />}
+          onClick={() => zoomByButton(1 / BUTTON_ZOOM_FACTOR)}
+          className="bg-[var(--bg-elevated)] border border-[var(--border)] shadow-[var(--shadow-sm)]"
+        />
+        <IconButton
+          aria-label="Zoom out"
+          icon={<MagnifyingGlassMinus size={16} />}
+          onClick={() => zoomByButton(BUTTON_ZOOM_FACTOR)}
           className="bg-[var(--bg-elevated)] border border-[var(--border)] shadow-[var(--shadow-sm)]"
         />
       </div>

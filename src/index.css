@@ -229,6 +229,10 @@ textarea {
   margin: auto;
   padding: 58px clamp(24px, 5vw, 72px) 80px;
 }
+.workspace-nav { display: flex; align-items: center; gap: 24px; margin-bottom: 32px; font-size: 13px; font-weight: 500; }
+.workspace-nav a { color: var(--text-muted); padding: 9px 0; border-bottom: 2px solid transparent; }
+.workspace-nav a:hover { color: var(--text); }
+.workspace-nav a[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent); }
 .library-title-row {
   display: flex;
   align-items: center;
@@ -837,4 +841,5 @@ select option {
   .export-button {
     padding: 0 7px;
   }
+  .share-button { padding: 0 7px; }
 }

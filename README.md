@@ -4,7 +4,7 @@ A local-first room planner with measured 2D editing, 3D walkthroughs, a saved de
 
 ## Run
 
-Node.js 22.12+ is required.
+Node.js 22.13+ is required, including the built-in SQLite module.
 
 ```sh
 npm ci
@@ -48,21 +48,78 @@ Anthropic, OpenAI, and Gemini remain available using a user-supplied API key. Th
 
 Designs are stored in this browser on this device. Autosave reports failures, flushes when the page closes, and blocks stale tabs from overwriting newer saves. Download backups for portability or before clearing browser data. If another tab has changed the library, export the unsaved work and reload the stale tab. Unreadable library data is retained under `room-planner:library:recovery`.
 
+## My furniture
+
+Open **My furniture** from the design library or the editor's furniture panel. Create a measured item, set its quantity, or save an existing room item from its inspector. The inventory is shared across local designs. Editing an inventory entry does not silently resize pieces already placed in a room.
+
+**Import link** reads public product specifications without an LLM. Paste a furniture product URL, select a variant when present, and confirm the name, width, depth, and height before saving. The service reads structured product data and recognizable dimension labels; it does not execute a retailer's JavaScript or bypass access restrictions. For blocked pages, missing dimensions, or ambiguous variants, paste the specifications or enter measurements directly. Review dimensions against the manufacturer's selected variant.
+
+Inventory entries preserve product source links when available. Inventory export/import provides a separate backup for owned furniture; design JSON exports remain independent.
+
+## Compare apartments
+
+Save each candidate apartment as a separate measured design. Open **Compare apartments**, select up to four designs, and assign inventory pieces to rooms. Quantities are reused consistently in every candidate.
+
+**Try my furniture** creates a temporary placement trial. The comparison distinguishes placed pieces, missing placements, dimension changes, pieces too large or tall, and unresolved layouts. A bounded placement search can miss a workable arrangement; **Needs layout** is not proof that an item cannot fit. Door transport, assembly, and building access are not assessed.
+
+Save a trial as an independent design to refine it. Original candidate plans stay intact. **Share options** publishes the displayed options, including current trials, for voting and comments.
+
+## Shared layout invitations
+
+Use **Share layouts** to publish one to four options. Visitors can view measured room plans, switch rooms, and copy an option into their own local library. A display name is requested only when voting or commenting. Shared snapshots do not update when the original design changes; publish another invitation for a revision.
+
+- Anyone with the public link can view its snapshots and feedback. Names are self-claimed. Each browser participant has one replaceable vote; this does not verify one vote per person.
+- Creator and participant capabilities are random secrets stored on the current device, separately from design documents. Public links contain only the invitation ID. The backend stores secret hashes. Clearing device storage removes local management access; storage failures are reported and retain capabilities only in the current tab.
+- The creator can revoke a link from the creating device. Invitations expire after 30 days. New invitation creation removes expired and revoked records with their feedback.
+- Invitations allow four options within 250 KB, 500 participants, and 200 comments. The service caps active invitations at 500 and applies persistent hourly request limits. Comments retry with a stable identifier to avoid duplicate posts after network failures.
+- Feedback refreshes every eight seconds while the invitation is visible. Copying a shared option makes an independent local design.
+
+Invitations require the backend below for access across devices. Personal libraries and furniture inventories remain local; there are no accounts or automatic design sync.
+
+## Backend
+
+`npm run dev` includes product import and the sharing API through Vite. It initializes a durable SQLite database at `.room-planner/service.sqlite`; `ROOM_PLANNER_DATA_DIR` selects another data directory. This database contains published snapshots, participants, votes, comments, and rate limits. It must not be committed or served as static content.
+
+To run the local API separately:
+
+```sh
+npm run dev:service
+```
+
+The standalone service binds to `127.0.0.1:8788`; `PORT` changes the port. Set `VITE_SERVICE_URL=http://127.0.0.1:8788` before starting the frontend to use it. `/api/health` checks database connectivity. Local service requests accept loopback frontend origins. Kessel remains a separate development-only relay and is never exposed by this backend.
+
+### Cloudflare Worker and D1
+
+The repository includes a Worker entry point and a D1 migration. A real Cloudflare database must be provisioned before deployment; the repository does not include a fabricated database binding or claim a deployed API.
+
+```sh
+npx wrangler login
+npx wrangler d1 create room-planner-service --binding DB --update-config
+npm run migrate:service
+npm run deploy:service
+```
+
+The create command adds the real `DB` binding and database ID to `wrangler.jsonc`. D1 uses the default `migrations/` directory, containing `0001_sharing.sql`. Apply migrations before deploying. See the [Cloudflare D1 command reference](https://developers.cloudflare.com/d1/wrangler-commands/) for provisioning and migration options.
+
+Set `ALLOWED_ORIGINS` in `wrangler.jsonc` to the exact frontend origins, comma-separated with no URL paths. The default is `https://waderylan.github.io`. Cross-origin mutations require the application header and JSON requests; creator and participant actions also validate their bearer capabilities. Do not add Kessel credentials, provider keys, or device capabilities to Worker configuration.
+
+Set the public Worker origin as `VITE_SERVICE_URL` when building the frontend. For GitHub Pages, set the repository Actions variable `ROOM_PLANNER_SERVICE_URL` to that origin and rerun the Pages deployment. No service credential belongs in this variable. A static build without a configured backend still supports local planning, inventory, and comparisons; link import and invitations need a reachable API.
+
 ## Shortcuts
 
-| Shortcut | Action |
-| --- | --- |
-| Ctrl/Cmd Z | Undo |
-| Ctrl/Cmd Shift Z or Ctrl Y | Redo |
-| Ctrl/Cmd S | Save locally |
-| Ctrl/Cmd D | Duplicate selected furniture |
-| R | Rotate selected furniture 90° |
-| Arrow keys | Move selected furniture; Shift for a larger step |
-| Delete / Backspace | Delete selected furniture |
-| Escape | Deselect / close dialog / release pointer lock |
-| Alt + drag | Move without grid snapping |
-| Scroll | Zoom |
-| Space + drag / middle drag | Pan |
+| Shortcut                   | Action                                           |
+| -------------------------- | ------------------------------------------------ |
+| Ctrl/Cmd Z                 | Undo                                             |
+| Ctrl/Cmd Shift Z or Ctrl Y | Redo                                             |
+| Ctrl/Cmd S                 | Save locally                                     |
+| Ctrl/Cmd D                 | Duplicate selected furniture                     |
+| R                          | Rotate selected furniture 90°                    |
+| Arrow keys                 | Move selected furniture; Shift for a larger step |
+| Delete / Backspace         | Delete selected furniture                        |
+| Escape                     | Deselect / close dialog / release pointer lock   |
+| Alt + drag                 | Move without grid snapping                       |
+| Scroll                     | Zoom                                             |
+| Space + drag / middle drag | Pan                                              |
 
 ## Verify
 
@@ -74,7 +131,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Core tests cover validation, unit conversion, geometry, placement, library migration, storage errors, history, and assistant cancellation/tool execution. Browser tests cover design management, editing, exports, keyboard dialogs, mobile appearance, assistant tool loops, malformed imports, and stale-tab protection. Browser tests mock the assistant and use no provider quota.
+Core tests cover validation, unit conversion, geometry, placement, library migration, storage errors, history, inventory, apartment fit comparisons, deterministic product parsing, sharing capabilities, quotas, and assistant cancellation/tool execution. Sharing tests use real SQLite, including reopen persistence and concurrent creation limits. Browser tests cover design management, editing, exports, keyboard dialogs, mobile appearance, assistant tool loops, malformed imports, and stale-tab protection. Browser tests mock the assistant and use no provider quota.
 
 With `npm run dev:codex -- --port 5178 --strictPort` running, this opt-in integration test uses real Codex quota through Kessel:
 
@@ -91,9 +148,9 @@ npm run build
 npm run preview
 ```
 
-Publish `dist/` to a static host. The default base path is `/`; set `BASE_PATH=/room-planner/` when building for a subdirectory. Hash navigation works without server rewrite rules. The included GitHub Pages workflow builds with `/room-planner/`; the checks workflow runs core and browser tests. No runtime secrets or accounts are needed.
+Publish `dist/` to a static host. The default base path is `/`; set `BASE_PATH=/room-planner/` when building for a subdirectory. Hash navigation works without server rewrite rules. The included GitHub Pages workflow builds with `/room-planner/`; the checks workflow runs core and browser tests. Local planning requires no account or API key. Deploy the backend separately for link import and shared feedback.
 
-The 3D renderer loads only when requested. WebGL support is required for 3D; 2D planning remains available without it. Storage is device-local, with no cross-device sync or collaboration.
+The 3D renderer loads only when requested. WebGL support is required for 3D; 2D planning remains available without it. Personal designs stay device-local. Shared invitations publish explicit snapshots and persist feedback in the service database.
 
 ## Source
 
@@ -103,6 +160,11 @@ The 3D renderer loads only when requested. WebGL support is required for 3D; 2D 
 - `src/components/`: library, 2D/3D editor, contextual tools, assistant, and accessible primitives.
 - `src/llm/`: provider adapters, bounded agent loop, validated tools, and placement logic.
 - `server/kesselPlugin.ts`: development-only local Codex relay.
+- `src/inventory/`: owned furniture persistence, unit conversion, and apartment fit analysis.
+- `src/productImport/`, `server/productImport/`: product URL validation, deterministic specification parsing, and bounded retrieval.
+- `src/sharing/`, `server/sharing/`: validated public snapshots, device capabilities, votes, comments, and durable SQL schema.
+- `server/service/`: local SQLite adapters, request routing, and the Cloudflare Worker entry point.
+- `migrations/`: versioned D1 schema migrations.
 - `tests/`: deterministic core and browser tests.
 
 React 19, TypeScript, Vite, Tailwind CSS 4, Zustand, Three.js / React Three Fiber, and Phosphor icons. Shared contributor instructions live in [AGENTS.md](AGENTS.md).

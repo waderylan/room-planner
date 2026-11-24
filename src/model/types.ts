@@ -12,6 +12,8 @@ export interface Item {
   name: string;
   /** Optional visual identity; dimensions and footprint remain the source of truth. */
   presetId?: string;
+  /** Optional link to an owned furniture record. Physical fields remain independent snapshots. */
+  inventoryId?: string;
   footprint: Footprint;
   pos: Vec2;
   rotDeg: number;

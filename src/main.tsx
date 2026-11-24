@@ -5,10 +5,36 @@ import { DesignLibrary } from "./components/DesignLibrary";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastStack } from "./components/ui/ToastStack";
 import { useStore } from "./store/store";
+import { useInventoryStore } from "./inventory/inventoryStore";
+import type { ConfirmedProduct } from "./productImport/types";
+import { ShareDialog } from "./components/Sharing/ShareDialog";
+import type { Project } from "./store/persistence";
 
 const App = lazy(() => import("./App"));
+const InventoryPage = lazy(() =>
+  import("./components/Inventory/InventoryPage").then((module) => ({
+    default: module.InventoryPage,
+  })),
+);
+const ComparePage = lazy(() =>
+  import("./components/Compare/ComparePage").then((module) => ({
+    default: module.ComparePage,
+  })),
+);
+const SharedLayoutPage = lazy(() =>
+  import("./components/Sharing/SharedLayoutPage").then((module) => ({
+    default: module.SharedLayoutPage,
+  })),
+);
+const ProductImportDialog = lazy(() =>
+  import("./components/ProductImport/ProductImportDialog").then((module) => ({
+    default: module.ProductImportDialog,
+  })),
+);
 
 export function Root() {
+  const [importing, setImporting] = useState(false);
+  const [sharing, setSharing] = useState<Project[] | null>(null);
   const [route, setRoute] = useState(() => {
     const hash = window.location.hash;
     return hash.startsWith("#design/") &&
@@ -22,6 +48,38 @@ export function Root() {
     (s) => s.projects.find((p) => p.id === s.activeProjectId)?.name,
   );
   const editor = route.startsWith("#design/");
+  const toDesigns = () => {
+    window.location.hash = "designs";
+  };
+  const openDesign = () => {
+    window.location.hash = `design/${useStore.getState().activeProjectId}`;
+  };
+  function saveProduct(product: ConfirmedProduct) {
+    const entry = useInventoryStore
+      .getState()
+      .saveEntry({
+        name: product.name,
+        footprint: { kind: "rect", w: product.widthM, d: product.depthM },
+        height: product.heightM,
+        elevation: 0,
+        color: "#8a8f98",
+        quantity: 1,
+        ...(product.sourceUrl
+          ? {
+              source: {
+                url: product.sourceUrl,
+                ...(product.sku ? { sku: product.sku } : {}),
+                ...(product.brand ? { brand: product.brand } : {}),
+              },
+            }
+          : {}),
+      });
+    if (entry)
+      useStore
+        .getState()
+        .pushToast(`Saved ${entry.name} to My furniture.`, "success");
+    return !!entry;
+  }
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
@@ -49,7 +107,15 @@ export function Root() {
       .getState()
       .projects.find((p) => p.id === activeProjectId);
     document.title =
-      editor && project ? `${project.name} · Room Planner` : "Room Planner";
+      editor && project
+        ? `${project.name} · Room Planner`
+        : route === "#furniture"
+          ? "My furniture · Room Planner"
+          : route === "#compare"
+            ? "Compare apartments · Room Planner"
+            : route.startsWith("#share/")
+              ? "Shared layouts · Room Planner"
+              : "Room Planner";
     if (
       editor &&
       window.location.hash === route &&
@@ -66,7 +132,24 @@ export function Root() {
           </div>
         }
       >
-        {editor ? (
+        {route === "#furniture" ? (
+          <InventoryPage
+            onBack={toDesigns}
+            onImportLink={() => setImporting(true)}
+          />
+        ) : route === "#compare" ? (
+          <ComparePage
+            onBack={toDesigns}
+            onOpenDesign={openDesign}
+            onShare={setSharing}
+          />
+        ) : route.startsWith("#share/") ? (
+          <SharedLayoutPage
+            shareId={route.slice(7)}
+            onBack={toDesigns}
+            onOpenDesign={openDesign}
+          />
+        ) : editor ? (
           <App
             onBackToLanding={() => {
               useStore.getState().flushSave();
@@ -74,13 +157,23 @@ export function Root() {
             }}
           />
         ) : (
-          <DesignLibrary
-            onOpen={() => {
-              window.location.hash = `design/${useStore.getState().activeProjectId}`;
-            }}
-          />
+          <DesignLibrary onOpen={openDesign} />
         )}
       </Suspense>
+      {importing && (
+        <Suspense fallback={null}>
+          <ProductImportDialog
+            open
+            onClose={() => setImporting(false)}
+            onSave={saveProduct}
+          />
+        </Suspense>
+      )}
+      <ShareDialog
+        open={sharing !== null}
+        onClose={() => setSharing(null)}
+        projects={sharing ?? []}
+      />
       <ToastStack />
     </ErrorBoundary>
   );

@@ -5,6 +5,8 @@ import { CUSTOM_PRESET, FURNITURE_PRESETS } from "../../model/presets";
 import type { FurniturePreset } from "../../model/presets";
 import { footprintSize, localPolygon } from "../../geometry/shape";
 import { formatLengthCompact } from "../../format/length";
+import { Segmented } from "../ui/Segmented";
+import { InventoryPanel } from "../Inventory/InventoryPanel";
 
 const CATEGORIES = ["All", "Living", "Bedroom", "Office", "Kitchen", "Bath"] as const;
 type Category = typeof CATEGORIES[number];
@@ -21,6 +23,7 @@ export function AddFurniturePanel() {
   const unit = useStore((s) => s.activeRoom().unit);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<Category>("All");
+  const [source, setSource] = useState<"catalog" | "mine">("catalog");
   const presets = useMemo(() => FURNITURE_PRESETS.filter((preset) =>
     (category === "All" || categoryIds[category].includes(preset.id)) &&
     preset.name.toLowerCase().includes(query.trim().toLowerCase()),
@@ -28,6 +31,9 @@ export function AddFurniturePanel() {
 
   return (
     <section data-tour="furniture" className="flex flex-col gap-4 border-b border-[var(--border)] p-4">
+      <Segmented aria-label="Furniture source" options={[{ value: "catalog", label: "Catalog" }, { value: "mine", label: "My furniture" }]} value={source} onChange={setSource} className="w-full justify-center" />
+      <div hidden={source !== "mine"}><InventoryPanel /></div>
+      <div hidden={source !== "catalog"} className="flex flex-col gap-4">
       <label className="flex h-10 items-center gap-2 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg)] px-3 text-[var(--text-muted)] focus-within:border-[var(--accent)]">
         <MagnifyingGlass size={16} />
         <input aria-label="Search furniture" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search furniture" className="min-w-0 flex-1 bg-transparent text-xs text-[var(--text)] outline-none placeholder:text-[var(--text-faint)]" />
@@ -55,6 +61,7 @@ export function AddFurniturePanel() {
       </div>
       {presets.length === 0 && <p className="py-5 text-center text-xs text-[var(--text-muted)]">No furniture found</p>}
       <button onClick={() => addItem(CUSTOM_PRESET)} className="flex h-9 items-center justify-center gap-2 rounded-[var(--radius-control)] border border-dashed border-[var(--border-strong)] text-xs font-medium text-[var(--text-muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]"><Plus size={14} />Custom furniture</button>
+      </div>
     </section>
   );
 }

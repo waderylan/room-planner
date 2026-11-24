@@ -102,6 +102,11 @@ export function DesignLibrary({ onOpen }: { onOpen: () => void }) {
         </div>
       </header>
       <main className="library-content">
+        <nav aria-label="Workspace" className="workspace-nav">
+          <a href="#designs" aria-current="page">Designs</a>
+          <a href="#furniture">My furniture</a>
+          <a href="#compare">Compare apartments</a>
+        </nav>
         {saveStatus === "error" && (
           <div className="save-error" role="alert">
             <WarningCircle size={18} />

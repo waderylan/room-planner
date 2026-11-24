@@ -11,6 +11,7 @@ import {
   MagnetStraight,
   Moon,
   Sparkle,
+  ShareNetwork,
   Sun,
   Wall,
   WarningCircle,
@@ -24,6 +25,7 @@ import { Menu } from "./ui/Menu";
 import { InlineTextEdit } from "./ui/InlineTextEdit";
 import { SettingsDialog } from "./Settings/SettingsDialog";
 import { downloadDesign, downloadFloorPlan } from "../lib/files";
+import { ShareDialog } from "./Sharing/ShareDialog";
 
 const SHORTCUTS = [
   ["⌘ / Ctrl Z", "Undo"],
@@ -44,6 +46,7 @@ export function Toolbar({ onBackToLanding }: { onBackToLanding?: () => void }) {
   const [renaming, setRenaming] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const room = state.activeRoom();
 
   return (
@@ -161,6 +164,7 @@ export function Toolbar({ onBackToLanding }: { onBackToLanding?: () => void }) {
               },
             ]}
           />
+          <Button size="sm" icon={<ShareNetwork size={16} />} onClick={() => setShareOpen(true)} className="share-button">Share</Button>
           <Menu
             trigger={
               <Button
@@ -268,6 +272,7 @@ export function Toolbar({ onBackToLanding }: { onBackToLanding?: () => void }) {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
       />
+      <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} projects={[project]} />
       <Dialog
         open={helpOpen}
         onClose={() => setHelpOpen(false)}

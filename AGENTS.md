@@ -3,7 +3,7 @@
 ## Product
 
 - A local-first room planner: independent saved designs, measured 2D editing, 3D views, optional room-editing assistant.
-- Preserve existing local designs and backward compatibility. No accounts, billing, or cloud sync.
+- Preserve existing local designs and backward compatibility. No accounts, billing, or automatic cloud sync. Explicitly published layout snapshots may collect shared votes and comments through invite links.
 - Use calm Apple-style product design: system typography, neutral surfaces, one blue accent, restrained motion, deliberate light/dark modes. Text carries names, data, actions, or short reasons. No marketing filler, captions, emoji, or onboarding tours.
 - Use Phosphor icons consistently. Native SVG geometry represents actual room/furniture data.
 
@@ -20,7 +20,7 @@ npm run test:e2e        # Playwright Chromium; npx playwright install chromium f
 npm run test:assistant  # explicit live Kessel/Codex smoke; consumes provider quota
 ```
 
-- Require Node 22.12+. Keep package-lock.json in sync with package.json.
+- Require Node 22.13+. The local shared-layout service uses built-in SQLite. Keep package-lock.json in sync with package.json.
 - Run meaningful tests appropriate to behavior changes and a production build. Never silently replace a real provider test with mocks; distinguish them in results.
 - Static production output lives in `dist/`. `BASE_PATH` configures the build's deployment subdirectory.
 
@@ -33,6 +33,10 @@ npm run test:assistant  # explicit live Kessel/Codex smoke; consumes provider qu
 - `src/store/store.ts`: single source of truth for documents, projects, undo/redo, and UI state. Mutate documents through actions so history and persistence stay consistent.
 - `src/store/persistence.ts`: bounded library parsing, legacy migration, debounced saves, explicit flush, recovery preservation, and stale-tab write protection. Surface errors; never silently discard saves or overwrite unreadable data.
 - `src/store/settingsStore.ts`: provider/model preferences persist; API keys stay in tab memory. Never persist secrets or add VITE_ credentials.
+- `src/inventory/`: reusable furniture in canonical meters; placed items are independent snapshots linked by inventoryId. Comparisons must check real dimensions and geometry; heuristic search failure means unresolved, never proof that furniture cannot fit.
+- `src/productImport/` and `server/productImport/`: deterministic structured-data extraction with editable review, unit conversion, variant handling, bounded retailer requests, and strict redirect/host checks. No LLM for product imports. Never substitute shipping or image dimensions for actual product dimensions.
+- `server/service/`: shared API router, local SQLite and Cloudflare D1 adapters. Limit request sizes and rates, allow exact frontend origins, and never expose a general fetch proxy. Vite mounts the local API automatically.
+- `server/sharing/` and `src/sharing/`: immutable layout snapshots, anonymous participant capabilities, bounded votes/comments, expiry/revocation. Store capability hashes server-side; never put owner/participant secrets in public invite URLs or public responses. Shared viewers must not mutate local designs until an explicit copy action.
 - `src/llm/`: provider adapters, tools with schema validation, room-aware placement, and bounded cancellable tool loop. Abort on project/room switches; check scope after awaits and before every mutation.
 - `server/kesselPlugin.ts`: local-only Vite development middleware. Require loopback connections, matching origin, custom application header for mutations, and private process-injected Kessel credentials. Never expose Kessel remotely or include the relay in a static build.
 - `src/components/Canvas2D/`: SVG editor with local drag previews and one commit per gesture. Preserve screen/world scale across aspect ratios. Mark handles and other editor-only elements for SVG export.

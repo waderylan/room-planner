@@ -56,6 +56,7 @@ export function migrateItem(value: unknown): Item {
     id: text(item.id, "furniture identifier", uuid()),
     name,
     ...(presetId ? { presetId } : {}),
+    ...(typeof item.inventoryId === "string" && item.inventoryId.length > 0 && item.inventoryId.length <= 200 ? { inventoryId: item.inventoryId } : {}),
     footprint: footprint(item.footprint),
     pos: point(item.pos),
     rotDeg: ((optionalNumber(item.rotDeg, 0, "rotation", -360000, 360000) % 360) + 360) % 360,

@@ -13,6 +13,8 @@ import { createLibraryPersistence, loadLibrary, validateProject, type Project, t
 import { convertItem, convertRoom } from "../model/units";
 import type { Toast, ToastVariant } from "./toast";
 import { downloadDesign } from "../lib/files";
+import type { InventoryEntry } from "../inventory/types";
+import { findInventoryPlacement } from "../inventory/comparison";
 
 export type ViewMode = "2d" | "3d";
 export type CameraMode = "orbit" | "walk";
@@ -99,6 +101,7 @@ interface StoreState {
 
   // items
   addItemFromPreset: (preset: FurniturePreset) => void;
+  addInventoryItem: (entry: InventoryEntry) => boolean;
   updateItem: (id: string, patch: Partial<Item>) => void;
   moveItem: (id: string, pos: Item["pos"], opts?: { skipSnap?: boolean; skipClamp?: boolean }) => void;
   rotateItem: (id: string, rotDeg: number) => void;
@@ -477,6 +480,16 @@ export const useStore = create<StoreState>()((set, get) => {
     removeOpening: (id) =>
       updateActiveRoom((r) => ({ ...r, openings: r.openings.filter((o) => o.id !== id) })),
 
+    addInventoryItem: (entry) => {
+      if (!get().activeProjectId) return false;
+      const placed = get().doc.rooms.reduce((sum, current) => sum + current.items.filter((item) => item.inventoryId === entry.id && !item.hidden).length, 0);
+      if (placed >= entry.quantity) { get().pushToast(`All ${entry.quantity} saved ${entry.quantity === 1 ? "copy is" : "copies are"} already in this design.`, "info"); return false; }
+      const room = get().activeRoom();
+      const item = findInventoryPlacement(entry, room);
+      if (!item) { get().pushToast("No clear placement was found. Try another room or move existing furniture.", "error"); return false; }
+      updateActiveRoom((current) => ({ ...current, items: [...current.items, item], selectedItemId: item.id }));
+      return true;
+    },
     addItemFromPreset: (preset) => {
       const room = get().activeRoom();
       if (room.items.length >= 500) { get().pushToast("A room can contain up to 500 furniture items.", "error"); return; }

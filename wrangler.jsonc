@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "room-planner-service",
+  "main": "server/service/worker.ts",
+  "compatibility_date": "2026-11-23",
+  "workers_dev": true,
+  "vars": { "ALLOWED_ORIGINS": "https://waderylan.github.io" },
+  "observability": { "enabled": false }
+}

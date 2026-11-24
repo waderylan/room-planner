@@ -8,6 +8,9 @@ import { Segmented } from "../ui/Segmented";
 import { LShapeEditor } from "../LShapeEditor";
 import { Copy, Trash, ArrowClockwise } from "@phosphor-icons/react";
 import { IconButton } from "../ui/IconButton";
+import { Button } from "../ui/Button";
+import { BookmarkSimple } from "@phosphor-icons/react";
+import { useInventoryStore } from "../../inventory/inventoryStore";
 
 type ShapeKind = "rect" | "circle" | "lshape";
 
@@ -24,6 +27,8 @@ export function Inspector() {
   const deleteItem = useStore((s) => s.deleteItem);
   const rotateItem = useStore((s) => s.rotateItem);
   const item = room.items.find((it) => it.id === room.selectedItemId);
+  const inventory = useInventoryStore((state) => state.entries);
+  const savedEntry = inventory.find((entry) => entry.id === item?.inventoryId);
   const scale = room.unit === "m" ? .3048 : 1;
 
   if (!item) {
@@ -85,6 +90,11 @@ export function Inspector() {
           className="h-8 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 text-sm text-[var(--text)] outline-none transition-colors duration-150 hover:border-[var(--border-strong)] focus-visible:border-[var(--accent)] focus-visible:shadow-[var(--focus-ring)]"
         />
       </label>
+
+      <Button size="sm" icon={<BookmarkSimple size={15} />} disabled={!!savedEntry} onClick={() => {
+        const entry = useInventoryStore.getState().saveItem(item, room.unit, room.name);
+        if (entry) { updateItem(item.id, { inventoryId: entry.id }); useStore.getState().pushToast("Saved to My furniture.", "success"); }
+      }}>{savedEntry ? "Saved to My furniture" : "Save to My furniture"}</Button>
 
       <div className="flex items-center justify-between">
         <span className="text-xs text-[var(--text-muted)]">Shape</span>

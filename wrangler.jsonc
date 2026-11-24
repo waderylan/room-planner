@@ -4,6 +4,17 @@
   "main": "server/service/worker.ts",
   "compatibility_date": "2026-11-23",
   "workers_dev": true,
-  "vars": { "ALLOWED_ORIGINS": "https://waderylan.github.io" },
-  "observability": { "enabled": false }
+  "vars": {
+    "ALLOWED_ORIGINS": "https://waderylan.github.io",
+  },
+  "observability": {
+    "enabled": false,
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "room-planner-service",
+      "database_id": "2546b111-5a12-49f6-8d60-7e98dc30dfdd",
+    },
+  ],
 }

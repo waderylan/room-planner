@@ -90,16 +90,15 @@ The standalone service binds to `127.0.0.1:8788`; `PORT` changes the port. Set `
 
 ### Cloudflare Worker and D1
 
-The repository includes a Worker entry point and a D1 migration. A real Cloudflare database must be provisioned before deployment; the repository does not include a fabricated database binding or claim a deployed API.
+The production API is [room-planner-service.rylanwwade.workers.dev](https://room-planner-service.rylanwwade.workers.dev/api/health). Its D1 database binding is recorded in `wrangler.jsonc`. Apply pending migrations before updating the Worker:
 
 ```sh
-npx wrangler login
-npx wrangler d1 create room-planner-service --binding DB --update-config
+npx wrangler login --scopes account:read user:read workers:write workers_scripts:write d1:write
 npm run migrate:service
 npm run deploy:service
 ```
 
-The create command adds the real `DB` binding and database ID to `wrangler.jsonc`. D1 uses the default `migrations/` directory, containing `0001_sharing.sql`. Apply migrations before deploying. See the [Cloudflare D1 command reference](https://developers.cloudflare.com/d1/wrangler-commands/) for provisioning and migration options.
+For a separate deployment, create a D1 database with `npx wrangler d1 create <database-name>` and update the `DB` binding with its real name and ID. D1 uses the default `migrations/` directory, containing `0001_sharing.sql`. Apply migrations before deploying. See the [Cloudflare D1 command reference](https://developers.cloudflare.com/d1/wrangler-commands/) for provisioning and migration options.
 
 Set `ALLOWED_ORIGINS` in `wrangler.jsonc` to the exact frontend origins, comma-separated with no URL paths. The default is `https://waderylan.github.io`. Cross-origin mutations require the application header and JSON requests; creator and participant actions also validate their bearer capabilities. Do not add Kessel credentials, provider keys, or device capabilities to Worker configuration.
 

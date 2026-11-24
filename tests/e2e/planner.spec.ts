@@ -227,12 +227,27 @@ test("Escape cancels renaming and menu keystrokes never edit the selected furnit
   await expect(
     page.getByRole("heading", { name: "Sofa", exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Design options", exact: true })
-    .click();
+  const options = page.getByRole("button", { name: "Design options", exact: true });
+  await options.focus();
+  // Keep these events in one browser task, before the menu's animation-frame autofocus.
+  await options.evaluate(async (trigger) => {
+    trigger.click();
+    await Promise.resolve();
+    if (!document.querySelector('[role="menu"]')) throw new Error("Design menu did not open");
+    for (const key of ["r", "Delete"]) {
+      trigger.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    }
+  });
+  await expect(page.getByRole("menu")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Rotation", exact: true })).toHaveValue("0");
+  await expect(page.getByRole("menuitem").first()).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("menuitem").nth(1)).toBeFocused();
   await page.keyboard.press("r");
   await page.keyboard.press("Delete");
   await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(options).toBeFocused();
   await expect(
     page.getByRole("textbox", { name: "Rotation", exact: true }),
   ).toHaveValue("0");

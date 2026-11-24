@@ -147,7 +147,8 @@ function App({ onBackToLanding }: { onBackToLanding?: () => void }) {
         store.flushSave();
         return;
       }
-      if (isTypingTarget(e.target)) return;
+      // A newly opened menu may still have focus on its trigger until the next frame.
+      if (document.querySelector('[role="menu"]') || isTypingTarget(e.target)) return;
       if (
         command &&
         (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")

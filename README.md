@@ -148,7 +148,7 @@ npm run build
 npm run preview
 ```
 
-Publish `dist/` to a static host. The default base path is `/`; set `BASE_PATH=/room-planner/` when building for a subdirectory. Hash navigation works without server rewrite rules. The included GitHub Pages workflow builds with `/room-planner/`; the checks workflow runs core and browser tests. Local planning requires no account or API key. Deploy the backend separately for link import and shared feedback.
+Publish `dist/` to a static host. The default base path is `/`; set `BASE_PATH=/room-planner/` when building for a subdirectory. Hash navigation works without server rewrite rules. The included GitHub Pages workflow builds with `/room-planner/` and publishes only after the reusable checks workflow passes lint, core tests, build, and browser tests. Pull requests run the same checks. Local planning requires no account or API key. Deploy the backend separately for link import and shared feedback.
 
 The 3D renderer loads only when requested. WebGL support is required for 3D; 2D planning remains available without it. Personal designs stay device-local. Shared invitations publish explicit snapshots and persist feedback in the service database.
 

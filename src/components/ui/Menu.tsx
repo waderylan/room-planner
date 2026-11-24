@@ -22,11 +22,11 @@ export function Menu({ trigger, items, align = "right" }: MenuProps) {
   const menuId = useId();
   const [position, setPosition] = useState({ left: 0, top: 0 });
 
-  function focusTrigger() { ref.current?.querySelector<HTMLButtonElement>("button")?.focus(); }
+  function focusTrigger() { ref.current?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true }); }
 
   useEffect(() => {
     if (!open) return;
-    const frame = requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus());
+    const frame = requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus({ preventScroll: true }));
     function onDown(e: PointerEvent) {
       if (!ref.current?.contains(e.target as Node) && !menuRef.current?.contains(e.target as Node)) setOpen(false);
     }
@@ -79,7 +79,7 @@ export function Menu({ trigger, items, align = "right" }: MenuProps) {
             else if (e.key === "Home") next = 0;
             else if (e.key === "End") next = buttons.length - 1;
             else return;
-            e.preventDefault(); e.stopPropagation(); buttons[next]?.focus();
+            e.preventDefault(); e.stopPropagation(); buttons[next]?.focus({ preventScroll: true });
           }}
           className="z-[60] min-w-44 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-1.5 shadow-[var(--shadow-md)]"
         >

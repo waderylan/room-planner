@@ -36,13 +36,13 @@ export function validateProject(value: unknown): Project {
 
 export function parseLibrary(raw: string): ProjectLibrary {
   const parsed = JSON.parse(raw) as Record<string, unknown>;
-  if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.projects) || !parsed.projects.length || parsed.projects.length > 200) {
+  if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.projects) || parsed.projects.length > 200) {
     throw new Error("Invalid design library.");
   }
   const projects = parsed.projects.map(validateProject);
   if (new Set(projects.map((p) => p.id)).size !== projects.length) throw new Error("Duplicate design identifiers.");
   const activeProjectId = typeof parsed.activeProjectId === "string" && projects.some((p) => p.id === parsed.activeProjectId)
-    ? parsed.activeProjectId : projects[0].id;
+    ? parsed.activeProjectId : projects[0]?.id ?? "";
   return { version: 1, projects, activeProjectId };
 }
 

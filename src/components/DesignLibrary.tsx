@@ -31,8 +31,6 @@ export function DesignLibrary({ onOpen }: { onOpen: () => void }) {
   const projects = useStore((s) => s.projects);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("updated");
-  const [newOpen, setNewOpen] = useState(false);
-  const [template, setTemplate] = useState<TemplateId>("empty");
   const [name, setName] = useState("");
   const [renameId, setRenameId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -54,13 +52,14 @@ export function DesignLibrary({ onOpen }: { onOpen: () => void }) {
     );
 
   function chooseTemplate(id: TemplateId) {
-    setTemplate(id);
-    setName(
+    const store = useStore.getState();
+    const count = store.projects.length;
+    const name =
       id === "empty"
         ? "Untitled design"
-        : ROOM_TEMPLATES.find((t) => t.id === id)!.name,
-    );
-    setNewOpen(true);
+        : ROOM_TEMPLATES.find((t) => t.id === id)!.name;
+    store.createProject(name, createFromTemplate(id));
+    if (useStore.getState().projects.length > count) onOpen();
   }
   async function importFile(file?: File) {
     if (!file) return;
@@ -112,7 +111,11 @@ export function DesignLibrary({ onOpen }: { onOpen: () => void }) {
             <Button size="sm" onClick={() => useStore.getState().flushSave()}>
               Retry
             </Button>
-            <Button size="sm" onClick={() => useStore.getState().exportDoc()}>
+            <Button
+              size="sm"
+              disabled={projects.length === 0}
+              onClick={() => useStore.getState().exportDoc()}
+            >
               Download backup
             </Button>
           </div>
@@ -142,6 +145,7 @@ export function DesignLibrary({ onOpen }: { onOpen: () => void }) {
             {previews.map((t) => (
               <button
                 className="template-card"
+                aria-label={`Start ${t.name}`}
                 key={t.id}
                 onClick={() => chooseTemplate(t.id)}
               >
@@ -302,17 +306,6 @@ export function DesignLibrary({ onOpen }: { onOpen: () => void }) {
                 </article>
               );
             })}
-            {!search && (
-              <button
-                className="new-design-card"
-                onClick={() => chooseTemplate("empty")}
-              >
-                <span>
-                  <Plus size={26} />
-                </span>
-                New design
-              </button>
-            )}
           </div>
           {filtered.length === 0 && search && (
             <div className="library-empty">
@@ -326,71 +319,6 @@ export function DesignLibrary({ onOpen }: { onOpen: () => void }) {
         </section>
       </main>
 
-      <Dialog
-        open={newOpen}
-        onClose={() => setNewOpen(false)}
-        title="New design"
-        maxWidthClassName="max-w-lg"
-      >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!name.trim()) return;
-            const store = useStore.getState();
-            const count = store.projects.length;
-            store.createProject(name.trim(), createFromTemplate(template));
-            if (useStore.getState().projects.length === count) return;
-            setNewOpen(false);
-            onOpen();
-          }}
-        >
-          <label className="field-label" htmlFor="design-name">
-            Name
-          </label>
-          <input
-            id="design-name"
-            className="text-input"
-            value={name}
-            maxLength={100}
-            onChange={(e) => setName(e.target.value)}
-            required
-            autoFocus
-          />
-          <div className="new-template-grid">
-            {previews.map((t) => (
-              <button
-                type="button"
-                key={t.id}
-                className={`new-template ${template === t.id ? "selected" : ""}`}
-                aria-pressed={template === t.id}
-                onClick={() => {
-                  setTemplate(t.id);
-                  if (
-                    ROOM_TEMPLATES.some((p) => p.name === name) ||
-                    name === "Untitled design"
-                  )
-                    setName(t.id === "empty" ? "Untitled design" : t.name);
-                }}
-              >
-                <DesignPreview doc={t.doc} />
-                <span>{t.name}</span>
-              </button>
-            ))}
-          </div>
-          <div className="dialog-actions">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setNewOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" disabled={!name.trim()}>
-              Create design
-            </Button>
-          </div>
-        </form>
-      </Dialog>
       <Dialog
         open={renameId !== null}
         onClose={() => setRenameId(null)}

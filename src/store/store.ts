@@ -17,6 +17,7 @@ import { downloadDesign } from "../lib/files";
 export type ViewMode = "2d" | "3d";
 export type CameraMode = "orbit" | "walk";
 export type Theme = "light" | "dark";
+export type SidebarTab = "furniture" | "room" | "selection";
 
 function prefersDark(): boolean {
   return typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches;
@@ -58,6 +59,7 @@ interface StoreState {
   snapStep: number;
   resizeSensitivity: number;
   sidebarOpen: boolean;
+  sidebarTab: SidebarTab;
   wallsVisible: boolean;
   chatOpen: boolean;
   toasts: Toast[];
@@ -73,6 +75,7 @@ interface StoreState {
   toggleSnap: () => void;
   setResizeSensitivity: (v: number) => void;
   setSidebarOpen: (open: boolean) => void;
+  setSidebarTab: (tab: SidebarTab) => void;
   toggleWallsVisible: () => void;
   setChatOpen: (open: boolean) => void;
 
@@ -120,6 +123,17 @@ function withOutline(shape: RoomShape, alcoves: Alcove[]) {
   return buildOutline(shape, alcoves);
 }
 
+function uniqueName(requested: string, names: string[]): string {
+  const base = requested.trim().slice(0, 120) || "Untitled design";
+  const existing = new Set(names.map((name) => name.toLowerCase()));
+  if (!existing.has(base.toLowerCase())) return base;
+  for (let suffix = 2; ; suffix++) {
+    const tail = ` ${suffix}`;
+    const candidate = base.slice(0, 120 - tail.length) + tail;
+    if (!existing.has(candidate.toLowerCase())) return candidate;
+  }
+}
+
 function clampRoomShape(shape: RoomShape): RoomShape {
   if (shape.kind !== "lshape") return shape;
   const margin = Math.min(0.1, shape.width / 4, shape.length / 4);
@@ -141,11 +155,10 @@ export const useStore = create<StoreState>()((set, get) => {
   let loaded: ReturnType<typeof loadLibrary>;
   try { loaded = loadLibrary(localStorage); }
   catch { loaded = { library: null, raw: null, error: "Device storage is unavailable. Export a backup before closing." }; }
-  const now = new Date().toISOString();
-  const initialProject: Project = { id: uuid(), name: "Untitled design", doc: createDoc(), createdAt: now, updatedAt: now };
-  const projects = loaded.library?.projects ?? [initialProject];
-  const activeProjectId = loaded.library?.activeProjectId ?? initialProject.id;
-  const doc = projects.find((p) => p.id === activeProjectId)!.doc;
+  const projects = loaded.library?.projects ?? [];
+  const activeProjectId = loaded.library?.activeProjectId ?? "";
+  // Keep editor helpers total while the library has no saved designs.
+  const doc = projects.find((p) => p.id === activeProjectId)?.doc ?? createDoc();
   const persistence = createLibraryPersistence(() => localStorage, (saveStatus, saveError) => set({ saveStatus, saveError }), loaded.raw);
   let lastHistoryGroup: string | undefined;
   let lastHistoryAt = 0;
@@ -165,6 +178,7 @@ export const useStore = create<StoreState>()((set, get) => {
 
   function updateDoc(fn: (doc: Doc) => Doc, options?: { record?: boolean; group?: string; touch?: boolean }) {
     const state = get();
+    if (!state.activeProjectId) return;
     let nextDoc: Doc;
     try { nextDoc = fn(state.doc); }
     catch (error) {
@@ -185,6 +199,7 @@ export const useStore = create<StoreState>()((set, get) => {
       doc: nextDoc,
       projects: state.projects.map((p) => p.id === state.activeProjectId ? { ...p, doc: nextDoc, ...(options?.touch === false ? {} : { updatedAt: new Date().toISOString() }) } : p),
       snapStep: nextDoc.rooms.find((r) => r.id === nextDoc.activeRoomId)?.unit === "m" ? 0.1 : 0.25,
+      ...(state.sidebarTab === "selection" && !nextDoc.rooms.find((r) => r.id === nextDoc.activeRoomId)?.selectedItemId ? { sidebarTab: "furniture" as const } : {}),
       ...history,
     });
     persistCurrent();
@@ -205,7 +220,7 @@ export const useStore = create<StoreState>()((set, get) => {
     updateRoom(activeRoomId, fn, options);
   }
 
-  // Give a new or migrated design a durable identity before the first editor action.
+  // Persist the initial empty library or a migrated design before the first editor action.
   // Never replace unreadable storage merely because the application was opened.
   if (!loaded.raw && !loaded.error) queueMicrotask(() => persistCurrent(true));
 
@@ -266,38 +281,47 @@ export const useStore = create<StoreState>()((set, get) => {
       }
       const nextDoc = suppliedDoc ? safeParseDoc(JSON.stringify(suppliedDoc)) : createDoc();
       const timestamp = new Date().toISOString();
-      const project: Project = { id: uuid(), name: name.trim().slice(0, 120) || "Untitled design", doc: nextDoc, createdAt: timestamp, updatedAt: timestamp };
-      set((s) => ({ projects: [...s.projects, project], activeProjectId: project.id, doc: nextDoc, viewMode: "2d", snapStep: nextDoc.rooms.find((r) => r.id === nextDoc.activeRoomId)?.unit === "m" ? 0.1 : 0.25, ...resetHistory() }));
+      const project: Project = { id: uuid(), name: uniqueName(name, get().projects.map((p) => p.name)), doc: nextDoc, createdAt: timestamp, updatedAt: timestamp };
+      set((s) => ({ projects: [...s.projects, project], activeProjectId: project.id, doc: nextDoc, viewMode: "2d", sidebarTab: "furniture", snapStep: nextDoc.rooms.find((r) => r.id === nextDoc.activeRoomId)?.unit === "m" ? 0.1 : 0.25, ...resetHistory() }));
       persistCurrent(true);
       return project.id;
     },
     openProject: (id) => {
       const project = get().projects.find((p) => p.id === id);
-      if (!project || id === get().activeProjectId) return;
-      set({ activeProjectId: id, doc: project.doc, viewMode: "2d", snapStep: project.doc.rooms.find((r) => r.id === project.doc.activeRoomId)?.unit === "m" ? 0.1 : 0.25, ...resetHistory() });
+      if (!project) return;
+      if (id === get().activeProjectId) { set({ sidebarTab: "furniture" }); return; }
+      set({ activeProjectId: id, doc: project.doc, viewMode: "2d", sidebarTab: "furniture", snapStep: project.doc.rooms.find((r) => r.id === project.doc.activeRoomId)?.unit === "m" ? 0.1 : 0.25, ...resetHistory() });
       persistCurrent(true);
     },
     renameProject: (id, name) => {
       const trimmed = name.trim().slice(0, 120);
       if (!trimmed) return;
+      if (!get().projects.some((p) => p.id === id && p.name !== trimmed)) return;
       set((s) => ({ projects: s.projects.map((p) => p.id === id ? { ...p, name: trimmed, updatedAt: new Date().toISOString() } : p) }));
       persistCurrent(true);
     },
     duplicateProject: (id) => {
       if (get().projects.length >= 200) { get().pushToast("This device has 200 designs. Export and remove a design first.", "error"); return null; }
       const project = get().projects.find((p) => p.id === id);
-      return project ? get().createProject(`${project.name} copy`, project.doc) : null;
+      if (!project) return null;
+      const timestamp = new Date().toISOString();
+      const copy: Project = {
+        id: uuid(), name: uniqueName(`${project.name} copy`, get().projects.map((p) => p.name)),
+        doc: safeParseDoc(JSON.stringify(project.doc)), createdAt: timestamp, updatedAt: timestamp,
+      };
+      set((state) => ({ projects: [...state.projects, copy] }));
+      persistCurrent(true);
+      return copy.id;
     },
     deleteProject: (id) => {
       const state = get();
       const remaining = state.projects.filter((p) => p.id !== id);
       if (remaining.length === state.projects.length) return;
-      if (!remaining.length) {
-        const timestamp = new Date().toISOString();
-        remaining.push({ id: uuid(), name: "Untitled design", doc: createDoc(), createdAt: timestamp, updatedAt: timestamp });
+      if (id !== state.activeProjectId) set({ projects: remaining });
+      else {
+        const active = remaining[0];
+        set({ projects: remaining, activeProjectId: active?.id ?? "", doc: active?.doc ?? createDoc(), sidebarTab: "furniture", snapStep: active?.doc.rooms.find((r) => r.id === active.doc.activeRoomId)?.unit === "m" ? 0.1 : 0.25, ...resetHistory() });
       }
-      const active = remaining.find((p) => p.id === state.activeProjectId) ?? remaining[0];
-      set({ projects: remaining, activeProjectId: active.id, doc: active.doc, ...resetHistory() });
       persistCurrent(true);
     },
     upsertProject: (value) => {
@@ -333,6 +357,7 @@ export const useStore = create<StoreState>()((set, get) => {
     snapStep: doc.rooms.find((r) => r.id === doc.activeRoomId)?.unit === "m" ? 0.1 : 0.25,
     resizeSensitivity: 0.5,
     sidebarOpen: false,
+    sidebarTab: "furniture",
     wallsVisible: true,
     chatOpen: false,
     toasts: [],
@@ -355,21 +380,25 @@ export const useStore = create<StoreState>()((set, get) => {
     setCameraMode: (m) => set({ cameraMode: m }),
     toggleSnap: () => set((s) => ({ snapEnabled: !s.snapEnabled })),
     setResizeSensitivity: (v) => set({ resizeSensitivity: Math.min(1.5, Math.max(0.1, v)) }),
-    setSidebarOpen: (open) => set({ sidebarOpen: open }),
+    setSidebarOpen: (open) => set(open ? { sidebarOpen: true, chatOpen: false } : { sidebarOpen: false }),
+    setSidebarTab: (tab) => set({ sidebarTab: tab }),
     toggleWallsVisible: () => set((s) => ({ wallsVisible: !s.wallsVisible })),
-    setChatOpen: (open) => set({ chatOpen: open }),
+    setChatOpen: (open) => set(open ? { chatOpen: true, sidebarOpen: false } : { chatOpen: false }),
 
     addRoom: () => {
       const d = get().doc;
       if (d.rooms.length >= 50) { get().pushToast("A design can contain up to 50 rooms.", "error"); return; }
-      const name = `Room ${d.rooms.length + 1}`;
-      const room = createRoom(name);
+      const names = new Set(d.rooms.map((r) => r.name.toLowerCase()));
+      let number = 1;
+      while (names.has(`room ${number}`)) number++;
+      const name = `Room ${number}`;
+      const room = convertRoom(createRoom(name), get().activeRoom().unit);
       updateDoc((doc2) => ({ ...doc2, rooms: [...doc2.rooms, room], activeRoomId: room.id }));
     },
     renameRoom: (id, name) => {
       const trimmed = name.trim().slice(0, 120);
       if (!trimmed) return;
-      updateRoom(id, (r) => ({ ...r, name: trimmed }));
+      updateRoom(id, (r) => r.name === trimmed ? r : ({ ...r, name: trimmed }));
     },
     duplicateRoom: (id) => {
       if (get().doc.rooms.length >= 50) { get().pushToast("A design can contain up to 50 rooms.", "error"); return; }
@@ -378,7 +407,7 @@ export const useStore = create<StoreState>()((set, get) => {
       const clone: Room = {
         ...src,
         id: uuid(),
-        name: `${src.name} copy`,
+        name: uniqueName(`${src.name} copy`, get().doc.rooms.map((r) => r.name)),
         items: src.items.map((it) => ({ ...it, id: uuid() })),
         alcoves: src.alcoves.map((a) => ({ ...a, id: uuid() })),
         openings: src.openings.map((o) => ({ ...o, id: uuid() })),
@@ -433,7 +462,7 @@ export const useStore = create<StoreState>()((set, get) => {
         const alcoves = r.alcoves.filter((a) => a.id !== id);
         return reconcileOutOfBounds({ ...r, alcoves, outline: withOutline(r.shape, alcoves) });
       }),
-    setMeasureMode: (mode) => updateActiveRoom((r) => ({ ...r, measureMode: mode }), { record: false, touch: false }),
+    setMeasureMode: (mode) => updateActiveRoom((r) => r.measureMode === mode ? r : ({ ...r, measureMode: mode }), { record: false, touch: false }),
 
     addOpening: (opening) =>
       updateActiveRoom((r) => {
@@ -466,32 +495,28 @@ export const useStore = create<StoreState>()((set, get) => {
     moveItem: (id, pos, opts) =>
       updateActiveRoom((r) => {
         if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return r;
+        const current = r.items.find((it) => it.id === id);
+        if (!current || current.pos.x === pos.x && current.pos.y === pos.y) return r;
         const { snapEnabled, snapStep } = get();
         const doSnap = snapEnabled && !opts?.skipSnap;
         const snappedPos = doSnap ? { x: snap(pos.x, snapStep), y: snap(pos.y, snapStep) } : pos;
+        const moved = migrateItem({ ...current, pos: snappedPos });
+        const finalPos = opts?.skipClamp ? moved.pos : clampPolygonInside(moved, r.outline);
+        if (current.pos.x === finalPos.x && current.pos.y === finalPos.y) return r;
         return {
           ...r,
-          items: r.items.map((it) => {
-            if (it.id !== id) return it;
-            const moved = migrateItem({ ...it, pos: snappedPos });
-            if (opts?.skipClamp) return moved;
-            const clamped = clampPolygonInside(moved, r.outline);
-            return { ...moved, pos: clamped };
-          }),
+          items: r.items.map((it) => it.id === id ? { ...moved, pos: finalPos } : it),
         };
       }),
     rotateItem: (id, rotDeg) =>
-      updateActiveRoom((r) => ({
-        ...r,
-        items: r.items.map((it) => {
-          if (it.id !== id) return it;
-          if (!Number.isFinite(rotDeg)) return it;
-          const normalized = ((rotDeg % 360) + 360) % 360;
-          const rotated = { ...it, rotDeg: normalized };
-          const pos = clampPolygonInside(rotated, r.outline);
-          return { ...rotated, pos };
-        }),
-      })),
+      updateActiveRoom((r) => {
+        const current = r.items.find((it) => it.id === id);
+        const normalized = ((rotDeg % 360) + 360) % 360;
+        if (!current || !Number.isFinite(rotDeg) || current.rotDeg === normalized) return r;
+        const rotated = { ...current, rotDeg: normalized };
+        const next = { ...rotated, pos: clampPolygonInside(rotated, r.outline) };
+        return { ...r, items: r.items.map((it) => it.id === id ? next : it) };
+      }),
     resizeItem: (id, footprint, pos, opts) =>
       updateActiveRoom((r) => ({
         ...r,
@@ -523,8 +548,10 @@ export const useStore = create<StoreState>()((set, get) => {
       const activeRoomId = doc2.activeRoomId;
       const src = doc2.rooms.find((r) => r.id === activeRoomId)?.items.find((it) => it.id === itemId);
       if (!src) return;
+      const target = doc2.rooms.find((r) => r.id === targetRoomId);
+      if (!target) return;
+      if (target.items.length >= 500) { get().pushToast("A room can contain up to 500 furniture items.", "error"); return; }
       updateRoom(targetRoomId, (target) => {
-        if (target.items.length >= 500) throw new Error("A room can contain up to 500 furniture items.");
         const sourceRoom = doc2.rooms.find((r) => r.id === activeRoomId)!;
         const clone = { ...cloneItem(convertItem(src, sourceRoom.unit, target.unit), 0), name: src.name };
         const pos = findFreeSpot(target, clone);
@@ -537,11 +564,16 @@ export const useStore = create<StoreState>()((set, get) => {
         ...r,
         items: r.items.map((it) => (it.id === id ? { ...it, hidden: !it.hidden } : it)),
       })),
-    selectItem: (id) => updateActiveRoom((r) => r.selectedItemId === id ? r : ({ ...r, selectedItemId: id }), { record: false, touch: false }),
+    selectItem: (id) => {
+      if (id) set({ sidebarTab: "selection" });
+      else if (get().sidebarTab === "selection") set({ sidebarTab: "furniture" });
+      updateActiveRoom((r) => r.selectedItemId === id ? r : ({ ...r, selectedItemId: id }), { record: false, touch: false });
+    },
 
     exportDoc: () => {
       const state = get();
-      const project = state.projects.find((p) => p.id === state.activeProjectId)!;
+      const project = state.projects.find((p) => p.id === state.activeProjectId);
+      if (!project) return;
       downloadDesign(state.doc, project.name);
       get().pushToast("Design exported.", "success");
     },

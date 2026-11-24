@@ -33,6 +33,16 @@ test("legacy autosave migrates without deleting the original", () => {
   assert.ok(storage.getItem(LEGACY_DOC_KEY));
 });
 
+test("an intentionally empty library stays empty instead of resurrecting legacy work", () => {
+  const storage = new MemoryStorage();
+  storage.setItem(LEGACY_DOC_KEY, JSON.stringify(createDoc()));
+  storage.setItem(LIBRARY_KEY, JSON.stringify({ version: 1, projects: [], activeProjectId: "" }));
+  const loaded = loadLibrary(storage);
+  assert.equal(loaded.error, null);
+  assert.deepEqual(loaded.library?.projects, []);
+  assert.equal(loaded.library?.activeProjectId, "");
+});
+
 test("unreadable library retains a recovery copy and exposes an error", () => {
   const storage = new MemoryStorage();
   storage.setItem(LIBRARY_KEY, '{"version":');

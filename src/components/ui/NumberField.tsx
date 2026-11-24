@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface NumberFieldProps {
   label?: string;
@@ -14,6 +14,8 @@ interface NumberFieldProps {
 
 export function NumberField({ label, value, onChange, step = 0.1, min, max, suffix, disabled, className = "" }: NumberFieldProps) {
   const [text, setText] = useState(formatNum(value));
+  const cancelled = useRef(false);
+  const originalText = useRef(text);
 
   useEffect(() => {
     setText(formatNum(value));
@@ -25,7 +27,7 @@ export function NumberField({ label, value, onChange, step = 0.1, min, max, suff
       let v = parsed;
       if (min !== undefined) v = Math.max(min, v);
       if (max !== undefined) v = Math.min(max, v);
-      onChange(v);
+      if (v !== value) onChange(v);
       setText(formatNum(v));
     } else {
       setText(formatNum(value));
@@ -42,11 +44,11 @@ export function NumberField({ label, value, onChange, step = 0.1, min, max, suff
           value={text}
           disabled={disabled}
           onChange={(e) => setText(e.target.value)}
-          onBlur={(e) => commit(e.target.value)}
+          onFocus={() => { cancelled.current = false; originalText.current = text; }}
+          onBlur={(e) => { if (!cancelled.current && e.target.value !== originalText.current) commit(e.target.value); }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              (e.target as HTMLInputElement).blur();
-            }
+            if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); cancelled.current = true; setText(formatNum(value)); e.currentTarget.blur(); }
+            else if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
           }}
           step={step}
           aria-label={label ?? suffix ?? "Number"}

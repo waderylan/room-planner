@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-Open the printed local URL. Start from an empty room or a furnished living room, bedroom, or office. Existing documents from the earlier app migrate into the library automatically.
+Open the printed local URL. A room preset opens directly in the editor; **New design** opens an empty room. Click the design name to rename it. Existing documents from the earlier app migrate into the library automatically.
 
 ## Local Codex through Kessel
 
@@ -31,7 +31,7 @@ The equivalent explicit PowerShell command is:
 
 Open **Assistant** in the editor. **Assistant settings** shows the connection and models actually returned by Kessel. Kessel supplies `OPENAI_BASE_URL` and `OPENAI_API_KEY` to the local Node process; the browser never receives the gateway key. The Vite middleware accepts only local, same-origin requests and forwards only to Kessel's loopback Codex route. It is absent from production builds.
 
-The assistant reads the active room, uses validated placement tools, checks overlaps, and sends tool results back to Codex until the task finishes. Stop cancels the request. Switching rooms or designs aborts the active task and clears the conversation so late responses cannot edit another room. Changes remain undoable.
+The assistant reads the active room, uses validated placement tools, checks overlaps, and sends tool results back to Codex until the task finishes. Stop cancels the request. Switching rooms or designs aborts the active task so late responses cannot edit another room. Each room retains its conversation and draft in tab memory, including when the panel closes. Failed requests restore the submitted text for retry. Settings apply on Done; Cancel leaves the connection unchanged. Changes remain undoable.
 
 Anthropic, OpenAI, and Gemini remain available using a user-supplied API key. Those keys exist only in the current tab's memory and requests go directly to the selected provider. Earlier persisted API keys are removed on startup. Local Kessel is for development on your machine; static hosting does not connect to a visitor's local Codex session.
 
@@ -39,11 +39,11 @@ Anthropic, OpenAI, and Gemini remain available using a user-supplied API key. Th
 
 - Create, search, rename, duplicate, and delete independent designs. Each design can contain multiple rooms.
 - Edit rectangular and L-shaped rooms, alcoves, ceilings, windows, and doors. Convert between feet and meters without changing physical dimensions.
-- Search furniture by name or category. Add presets or custom shapes, drag, resize, rotate, and edit exact dimensions and positions.
+- Search furniture by name or category. Adding pieces keeps the catalog and filters in place; selecting an existing piece opens its inspector. Drag, resize, rotate, and edit exact dimensions and positions.
 - Inspect wall clearances and furniture collisions. Rugs, hidden pieces, and vertically separated objects do not create false collisions.
 - Undo and redo edits. Property changes group into short editing steps.
 - Switch between a 2D floor plan, 3D orbit view, and a first-person walkthrough.
-- Export a JSON design backup or a standalone SVG floor plan. Import JSON as a separate design.
+- Export a JSON design backup or a standalone SVG floor plan from either view. The floor plan always includes the complete room, independent of zoom and appearance. Import JSON as a separate design.
 - Use light or dark appearance, keyboard navigation, or the mobile tools drawer.
 
 Designs are stored in this browser on this device. Autosave reports failures, flushes when the page closes, and blocks stale tabs from overwriting newer saves. Download backups for portability or before clearing browser data. If another tab has changed the library, export the unsaved work and reload the stale tab. Unreadable library data is retained under `room-planner:library:recovery`.

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { WarningCircle } from "@phosphor-icons/react";
 import { useStore } from "./store/store";
 import { Toolbar } from "./components/Toolbar";
@@ -20,10 +20,24 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
     (!!target.closest(
-      "input, textarea, select, [role=dialog], [contenteditable=true]",
+      "input, textarea, select, [role=dialog], [role=menu], [contenteditable=true]",
     ) ||
       !!document.querySelector("dialog[open]"))
   );
+}
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(
+    () => window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [query]);
+  return matches;
 }
 
 function App({ onBackToLanding }: { onBackToLanding?: () => void }) {
@@ -37,10 +51,96 @@ function App({ onBackToLanding }: { onBackToLanding?: () => void }) {
   const saveStatus = useStore((s) => s.saveStatus);
   const saveError = useStore((s) => s.saveError);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const mobile = useMediaQuery("(max-width: 767px)");
+  const compact = useMediaQuery("(max-width: 1023px)");
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const assistantRef = useRef<HTMLElement>(null);
+  const activePanel =
+    mobile && sidebarOpen
+      ? "sidebar"
+      : compact && chatOpen
+        ? "assistant"
+        : null;
+
+  useEffect(() => {
+    if (!activePanel) return;
+    const panel =
+      activePanel === "sidebar" ? sidebarRef.current : assistantRef.current;
+    if (!panel) return;
+    const previous =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const controls = () =>
+      [
+        ...panel.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"]',
+        ),
+      ].filter(
+        (element) =>
+          element.getClientRects().length && !element.closest("[inert]"),
+      );
+    (controls()[0] ?? panel).focus();
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || document.querySelector("dialog[open]")) return;
+      const elements = controls();
+      const first = elements[0],
+        last = elements.at(-1);
+      if (!first || !last) {
+        event.preventDefault();
+        panel.focus();
+        return;
+      }
+      if (
+        event.shiftKey &&
+        (document.activeElement === first || document.activeElement === panel)
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        (document.activeElement === last ||
+          !panel.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", trapFocus);
+    return () => {
+      document.removeEventListener("keydown", trapFocus);
+      if (
+        previous?.isConnected &&
+        previous.getClientRects().length &&
+        !previous.closest("[inert]")
+      )
+        previous.focus();
+    };
+  }, [activePanel]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      if (e.defaultPrevented) return;
       const store = useStore.getState();
+      if (
+        e.key === "Escape" &&
+        !document.querySelector('dialog[open], [role="menu"]')
+      ) {
+        if (
+          window.matchMedia("(max-width: 767px)").matches &&
+          store.sidebarOpen
+        ) {
+          store.setSidebarOpen(false);
+          return;
+        }
+        if (
+          window.matchMedia("(max-width: 1023px)").matches &&
+          store.chatOpen
+        ) {
+          store.setChatOpen(false);
+          return;
+        }
+      }
       const command = e.metaKey || e.ctrlKey;
       if (command && e.key.toLowerCase() === "s") {
         e.preventDefault();
@@ -81,7 +181,9 @@ function App({ onBackToLanding }: { onBackToLanding?: () => void }) {
 
   return (
     <div className="editor-shell">
-      <Toolbar onBackToLanding={onBackToLanding} />
+      <div className="shrink-0" inert={!!activePanel}>
+        <Toolbar onBackToLanding={onBackToLanding} />
+      </div>
       {saveStatus === "error" && (
         <div className="save-error" role="alert">
           <WarningCircle size={18} />
@@ -99,13 +201,27 @@ function App({ onBackToLanding }: { onBackToLanding?: () => void }) {
           <button
             aria-label="Close sidebar"
             className="mobile-backdrop md:hidden"
+            tabIndex={-1}
+            aria-hidden="true"
             onClick={() => setSidebarOpen(false)}
           />
         )}
-        <div className={`editor-sidebar ${sidebarOpen ? "is-open" : ""}`}>
+        <div
+          ref={sidebarRef}
+          tabIndex={-1}
+          className={`editor-sidebar ${sidebarOpen ? "is-open" : ""}`}
+          inert={(mobile && !sidebarOpen) || activePanel === "assistant"}
+          aria-hidden={
+            (mobile && !sidebarOpen) || activePanel === "assistant" || undefined
+          }
+        >
           <Sidebar />
         </div>
-        <main className="editor-workspace" aria-label="Room editor">
+        <main
+          className="editor-workspace"
+          aria-label="Room editor"
+          inert={!!activePanel}
+        >
           <div data-floor-plan className="canvas-area">
             <ErrorBoundary
               key={`${projectId}-${roomId}-${viewMode}`}
@@ -134,9 +250,16 @@ function App({ onBackToLanding }: { onBackToLanding?: () => void }) {
             <button
               aria-label="Close assistant"
               className="mobile-backdrop lg:hidden"
+              tabIndex={-1}
+              aria-hidden="true"
               onClick={() => setChatOpen(false)}
             />
-            <aside className="assistant-panel" aria-label="Room assistant">
+            <aside
+              ref={assistantRef}
+              tabIndex={-1}
+              className="assistant-panel"
+              aria-label="Room assistant"
+            >
               <Suspense
                 fallback={
                   <div className="view-loading">Loading assistant…</div>

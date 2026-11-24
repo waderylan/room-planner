@@ -12,9 +12,12 @@ are reused across the toolbar, sidebar, dialogs, and chat.
   Esc/backdrop close.
 - `Menu.tsx` — dropdown/popover menu of actions, closing on outside click.
 - `NumberField.tsx` — labeled numeric input with step/min/max, unit suffix, and local-edit
-  buffering.
+  buffering. Enter/blur commits changed values; Escape restores them. Unchanged focus/blur
+  preserves the underlying precision and does not create an undo step.
+- `LengthField.tsx` — paired feet/inches or decimal metric inputs with the same commit/cancel
+  rules. Empty imperial fields restore their previous component instead of becoming zero.
 - `InlineTextEdit.tsx` — in-place text editor (e.g. for renaming) that toggles between label
-  and input.
+  and input. Enter/blur commits once; Escape cancels even when unmounting causes blur.
 - `Segmented.tsx` — segmented (pill) single-choice control, generic over a string union.
 - `Toggle.tsx` — labeled on/off switch.
 - `ToastStack.tsx` — renders the transient toast notifications from the store (success/error/

@@ -7,10 +7,13 @@ Configuration UI for the LLM assistant.
 - `SettingsDialog.tsx` — picks Local Codex in development or a direct Anthropic, OpenAI,
   or Gemini connection. Local mode displays actual gateway connectivity and discovered
   model options; direct connections expose a model field and password-masked API key.
+  Changes remain a dialog draft until Done; Cancel discards them. Editing model text does
+  not interrupt or clear a chat. Committing changed connection settings cancels a running
+  request while retaining its transcript and draft.
 
 `settingsStore` persists provider and model preferences only. API keys exist in memory
 for the current tab and disappear on reload. Legacy keys from earlier versions are removed
-from stored preferences and never restored. Clearing a key removes it immediately.
+from stored preferences and never restored. Clear key takes effect when Done is selected.
 
 Start local mode with `npm run dev:codex`. The launch wrapper finds Kessel on PATH, accepts
 an explicit `KESSEL_EXECUTABLE`, or uses the adjacent Kessel checkout's virtual environment.

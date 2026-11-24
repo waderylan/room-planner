@@ -1,6 +1,5 @@
-import type { Doc } from "../model/types";
-import { fitViewBox, viewBoxString } from "../components/Canvas2D/viewBox";
-import type { Vec2 } from "../geometry/types";
+import type { Doc, Room } from "../model/types";
+import { createFloorPlanSvg } from "./floorPlan";
 
 export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 export function downloadFile(content: BlobPart, name: string, type: string) {
@@ -27,27 +26,10 @@ export function downloadDesign(doc: Doc, name: string) {
   );
 }
 
-/** Resolve CSS tokens before export so the file works outside the application. */
-export function downloadFloorPlan(name: string, outline: Vec2[]) {
-  const svg = document.querySelector<SVGSVGElement>("[data-floor-plan] svg");
-  if (!svg) return;
-  const clone = svg.cloneNode(true) as SVGSVGElement;
-  const style = getComputedStyle(document.documentElement);
-  clone
-    .querySelectorAll("[data-editor-only]")
-    .forEach((element) => element.remove());
-  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-  clone.setAttribute("width", "1600");
-  clone.setAttribute("height", "1200");
-  clone.setAttribute("viewBox", viewBoxString(fitViewBox(outline)));
-  clone.setAttribute(
-    "style",
-    "font-family: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; background: " +
-      style.getPropertyValue("--bg-inset").trim(),
+export function downloadFloorPlan(name: string, room: Room) {
+  downloadFile(
+    createFloorPlanSvg(room),
+    `${filename(name)}.svg`,
+    "image/svg+xml",
   );
-  let content = new XMLSerializer().serializeToString(clone);
-  content = content.replace(/var\((--[\w-]+)\)/g, (_, token: string) =>
-    style.getPropertyValue(token).trim(),
-  );
-  downloadFile(content, `${filename(name)}.svg`, "image/svg+xml");
 }

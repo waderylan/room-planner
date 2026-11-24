@@ -44,7 +44,6 @@ export function Toolbar({ onBackToLanding }: { onBackToLanding?: () => void }) {
   const [renaming, setRenaming] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [exportOpen, setExportOpen] = useState(false);
   const room = state.activeRoom();
 
   return (
@@ -65,10 +64,12 @@ export function Toolbar({ onBackToLanding }: { onBackToLanding?: () => void }) {
               editing
               onStopEditing={() => setRenaming(false)}
               className="w-40"
+              aria-label="Design name"
             />
           ) : (
             <button
               className="project-title"
+              aria-label={`Rename ${project.name}`}
               title="Rename design"
               onClick={() => setRenaming(true)}
             >
@@ -160,14 +161,34 @@ export function Toolbar({ onBackToLanding }: { onBackToLanding?: () => void }) {
               },
             ]}
           />
-          <Button
-            size="sm"
-            icon={<DownloadSimple size={16} />}
-            onClick={() => setExportOpen(true)}
-            className="export-button"
-          >
-            Export
-          </Button>
+          <Menu
+            trigger={
+              <Button
+                size="sm"
+                icon={<DownloadSimple size={16} />}
+                className="export-button"
+              >
+                Export
+              </Button>
+            }
+            items={[
+              {
+                key: "backup",
+                label: "Design backup (JSON)",
+                onSelect: () =>
+                  downloadDesign(useStore.getState().doc, project.name),
+              },
+              {
+                key: "plan",
+                label: "Floor plan (SVG)",
+                onSelect: () =>
+                  downloadFloorPlan(
+                    project.name,
+                    useStore.getState().activeRoom(),
+                  ),
+              },
+            ]}
+          />
         </div>
       </header>
       <div className="editor-tools">
@@ -183,14 +204,22 @@ export function Toolbar({ onBackToLanding }: { onBackToLanding?: () => void }) {
           <span className="header-divider" />
           {state.viewMode === "2d" ? (
             <>
-              <Segmented
-                options={[
-                  { value: "wall", label: "Walls" },
-                  { value: "furniture", label: "Furniture" },
-                ]}
-                value={room.measureMode}
-                onChange={state.setMeasureMode}
-              />
+              {room.selectedItemId && (
+                <>
+                  <span className="hidden text-xs text-[var(--text-muted)] sm:inline">
+                    Measure to
+                  </span>
+                  <Segmented
+                    aria-label="Measure clearance to"
+                    options={[
+                      { value: "wall", label: "Walls" },
+                      { value: "furniture", label: "Furniture" },
+                    ]}
+                    value={room.measureMode}
+                    onChange={state.setMeasureMode}
+                  />
+                </>
+              )}
               <IconButton
                 aria-label="Toggle grid snap"
                 title="Snap to grid"
@@ -254,42 +283,6 @@ export function Toolbar({ onBackToLanding }: { onBackToLanding?: () => void }) {
             </div>
           ))}
         </dl>
-      </Dialog>
-      <Dialog
-        open={exportOpen}
-        onClose={() => setExportOpen(false)}
-        title="Export design"
-      >
-        <div className="export-options">
-          <button
-            onClick={() => {
-              downloadDesign(state.doc, project.name);
-              setExportOpen(false);
-            }}
-          >
-            <DownloadSimple size={22} />
-            <span>
-              Design backup<span className="export-format">JSON</span>
-            </span>
-            <DownloadSimple size={16} />
-          </button>
-          <button
-            disabled={state.viewMode !== "2d"}
-            onClick={() => {
-              downloadFloorPlan(project.name, room.outline);
-              setExportOpen(false);
-            }}
-          >
-            <DownloadSimple size={22} />
-            <span>
-              Floor plan
-              <span className="export-format">
-                SVG{state.viewMode !== "2d" ? " · Switch to 2D" : ""}
-              </span>
-            </span>
-            <DownloadSimple size={16} />
-          </button>
-        </div>
       </Dialog>
     </>
   );

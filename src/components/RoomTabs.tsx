@@ -26,7 +26,7 @@ export function RoomTabs() {
           const active = room.id === activeRoomId;
           return (
             <div key={room.id} className={`group flex h-8 shrink-0 items-center rounded-lg border text-xs font-medium ${active ? "border-[var(--border)] bg-[var(--bg-inset)] text-[var(--text)]" : "border-transparent text-[var(--text-muted)] hover:bg-[var(--bg-inset)]"}`}>
-              {editingId === room.id ? <InlineTextEdit value={room.name} editing onStopEditing={() => setEditingId(null)} onCommit={(name) => renameRoom(room.id, name)} className="mx-1 w-32" /> : (
+              {editingId === room.id ? <InlineTextEdit aria-label="Room tab name" value={room.name} editing onStopEditing={() => setEditingId(null)} onCommit={(name) => renameRoom(room.id, name)} className="mx-1 w-32" /> : (
                 <button id={`room-tab-${room.id}`} role="tab" aria-selected={active} tabIndex={active ? 0 : -1} onClick={() => setActiveRoomId(room.id)} onDoubleClick={() => setEditingId(room.id)} onKeyDown={(e) => {
                   if (e.key === "F2") { e.preventDefault(); setEditingId(room.id); return; }
                   if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;

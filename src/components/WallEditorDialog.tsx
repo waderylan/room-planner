@@ -1,7 +1,7 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useStore } from "../store/store";
-import { wallSegments } from "../geometry/openings";
-import type { DoorHinge } from "../model/types";
+import { clampOpening, wallSegments } from "../geometry/openings";
+import type { DoorHinge, Opening } from "../model/types";
 import { Dialog } from "./ui/Dialog";
 import { LengthField } from "./ui/LengthField";
 import { Segmented } from "./ui/Segmented";
@@ -24,10 +24,12 @@ export function WallEditorDialog({ wallIndex, openingId, onClose }: WallEditorDi
   const removeOpening = useStore((s) => s.removeOpening);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const dragRef = useRef<{ clientX: number; clientY: number; offset: number; sillHeight: number } | null>(null);
+  const dragRef = useRef<{ clientX: number; clientY: number; start: Opening } | null>(null);
+  const [draft, setDraft] = useState<Opening | null>(null);
+  const draftRef = useRef<Opening | null>(null);
 
   const wall = wallSegments(room.outline)[wallIndex];
-  const opening = room.openings.find((o) => o.id === openingId);
+  const opening = draft ?? room.openings.find((o) => o.id === openingId);
   const open = Boolean(wall && opening);
 
   if (!wall || !opening) {
@@ -46,7 +48,8 @@ export function WallEditorDialog({ wallIndex, openingId, onClose }: WallEditorDi
   function handlePointerDown(e: React.PointerEvent<SVGRectElement>) {
     e.stopPropagation();
     (e.target as Element).setPointerCapture(e.pointerId);
-    dragRef.current = { clientX: e.clientX, clientY: e.clientY, offset: opening!.offset, sillHeight: opening!.sillHeight };
+    dragRef.current = { clientX: e.clientX, clientY: e.clientY, start: opening! };
+    draftRef.current = opening!;
   }
 
   function handlePointerMove(e: React.PointerEvent<SVGRectElement>) {
@@ -58,13 +61,20 @@ export function WallEditorDialog({ wallIndex, openingId, onClose }: WallEditorDi
     if (scale <= 0) return;
     const dxUnits = (e.clientX - drag.clientX) / scale;
     const dyUnits = (e.clientY - drag.clientY) / scale;
-    const patch: { offset: number; sillHeight?: number } = { offset: drag.offset + dxUnits };
-    if (opening.kind === "window") patch.sillHeight = drag.sillHeight - dyUnits;
-    updateOpening(opening.id, patch);
+    const patch: { offset: number; sillHeight?: number } = { offset: drag.start.offset + dxUnits };
+    if (opening.kind === "window") patch.sillHeight = drag.start.sillHeight - dyUnits;
+    const next = clampOpening(room.outline, room.ceiling, { ...drag.start, ...patch });
+    draftRef.current = next;
+    setDraft(next);
   }
 
   function handlePointerUp(e: React.PointerEvent<SVGRectElement>) {
+    const start = dragRef.current?.start;
+    const next = draftRef.current;
+    if (start && next && (start.offset !== next.offset || start.sillHeight !== next.sillHeight)) updateOpening(start.id, { offset: next.offset, sillHeight: next.sillHeight });
     dragRef.current = null;
+    draftRef.current = null;
+    setDraft(null);
     (e.target as Element).releasePointerCapture(e.pointerId);
   }
 
@@ -95,10 +105,9 @@ export function WallEditorDialog({ wallIndex, openingId, onClose }: WallEditorDi
       }
     >
       <div className="flex flex-col gap-3">
-        <p className="text-xs text-[var(--text-faint)]">Drag the {opening.kind} to position it on the wall.</p>
-
         <svg
           ref={svgRef}
+          aria-label={`${opening.kind === "door" ? "Door" : "Window"} position on wall ${wallIndex + 1}`}
           viewBox={`${-pad} ${-pad} ${vbW} ${vbH}`}
           className="h-[220px] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg-inset)] touch-none select-none"
         >
@@ -132,6 +141,7 @@ export function WallEditorDialog({ wallIndex, openingId, onClose }: WallEditorDi
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
+            onPointerCancel={() => { dragRef.current = null; draftRef.current = null; setDraft(null); }}
           />
         </svg>
 
@@ -141,14 +151,14 @@ export function WallEditorDialog({ wallIndex, openingId, onClose }: WallEditorDi
             value={opening.width}
             onChange={(v) => updateOpening(opening.id, { width: v })}
             unit={room.unit}
-            min={0.5}
+            min={room.unit === "m" ? .1524 : .5}
           />
           <LengthField
             label="Height"
             value={opening.height}
             onChange={(v) => updateOpening(opening.id, { height: v })}
             unit={room.unit}
-            min={0.5}
+            min={room.unit === "m" ? .1524 : .5}
           />
           <LengthField
             label="Offset from left"

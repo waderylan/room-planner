@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Armchair, Ruler, SlidersHorizontal, X } from "@phosphor-icons/react";
 import { useStore } from "../../store/store";
 import { RoomPanel } from "./RoomPanel";
@@ -8,17 +8,16 @@ import { Inspector } from "./Inspector";
 import { ItemList } from "./ItemList";
 import { IconButton } from "../ui/IconButton";
 
-type Tab = "furniture" | "room" | "selection";
-
 export function Sidebar() {
   const selectedId = useStore((s) => s.activeRoom().selectedItemId);
   const closeSidebar = useStore((s) => s.setSidebarOpen);
-  const [tab, setTab] = useState<Tab>("furniture");
+  const tab = useStore((s) => s.sidebarTab);
+  const setTab = useStore((s) => s.setSidebarTab);
+  const roomId = useStore((s) => s.doc.activeRoomId);
 
   useEffect(() => {
-    if (selectedId) setTab("selection");
-    else setTab((current) => current === "selection" ? "furniture" : current);
-  }, [selectedId]);
+    if (!selectedId && tab === "selection") setTab("furniture");
+  }, [selectedId, tab, setTab]);
 
   const tabs = [
     { id: "furniture" as const, name: "Furniture", icon: Armchair },
@@ -39,7 +38,7 @@ export function Sidebar() {
             role="tab"
             id={`tools-${id}`}
             aria-selected={tab === id}
-            aria-controls="design-tools-panel"
+            aria-controls={`tools-panel-${id}`}
             tabIndex={tab === id ? 0 : -1}
             disabled={id === "selection" && !selectedId}
             onClick={() => setTab(id)}
@@ -58,10 +57,10 @@ export function Sidebar() {
           </button>
         ))}
       </div>
-      <div id="design-tools-panel" role="tabpanel" aria-labelledby={`tools-${tab}`} className="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-thin">
-        {tab === "furniture" && <><AddFurniturePanel /><ItemList /></>}
-        {tab === "room" && <><RoomPanel /><StatsPanel /></>}
-        {tab === "selection" && <><Inspector /><ItemList /></>}
+      <div className="min-h-0 flex-1">
+        <div id="tools-panel-furniture" role="tabpanel" aria-labelledby="tools-furniture" hidden={tab !== "furniture"} className="h-full overflow-y-auto overscroll-contain scrollbar-thin"><AddFurniturePanel />{tab === "furniture" && <ItemList />}</div>
+        {tab === "room" && <div id="tools-panel-room" role="tabpanel" aria-labelledby="tools-room" className="h-full overflow-y-auto overscroll-contain scrollbar-thin"><RoomPanel key={roomId} /><StatsPanel /></div>}
+        {tab === "selection" && <div id="tools-panel-selection" role="tabpanel" aria-labelledby="tools-selection" className="h-full overflow-y-auto overscroll-contain scrollbar-thin"><Inspector key={selectedId} /><ItemList /></div>}
       </div>
     </aside>
   );

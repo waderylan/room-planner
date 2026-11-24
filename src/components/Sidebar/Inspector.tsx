@@ -24,6 +24,7 @@ export function Inspector() {
   const deleteItem = useStore((s) => s.deleteItem);
   const rotateItem = useStore((s) => s.rotateItem);
   const item = room.items.find((it) => it.id === room.selectedItemId);
+  const scale = room.unit === "m" ? .3048 : 1;
 
   if (!item) {
     return (
@@ -49,7 +50,7 @@ export function Inspector() {
       updateItem(item.id, {
         footprint: {
           kind: "poly",
-          points: lShapePolygon(size.w, size.d, "ne", Math.max(0.5, size.w / 3), Math.max(0.5, size.d / 3)),
+          points: lShapePolygon(size.w, size.d, "ne", size.w / 3, size.d / 3),
         },
       });
     }
@@ -69,8 +70,18 @@ export function Inspector() {
       <label className="flex flex-col gap-1">
         <span className="text-xs text-[var(--text-muted)]">Name</span>
         <input
-          value={item.name}
-          onChange={(e) => updateItem(item.id, { name: e.target.value })}
+          key={`${item.id}:${item.name}`}
+          defaultValue={item.name}
+          maxLength={120}
+          onBlur={(e) => {
+            const nextName = e.currentTarget.value.trim();
+            if (nextName && nextName !== item.name) updateItem(item.id, { name: nextName });
+            e.currentTarget.value = nextName || item.name;
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); e.currentTarget.value = item.name; e.currentTarget.blur(); }
+            else if (e.key === "Enter") e.currentTarget.blur();
+          }}
           className="h-8 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 text-sm text-[var(--text)] outline-none transition-colors duration-150 hover:border-[var(--border-strong)] focus-visible:border-[var(--accent)] focus-visible:shadow-[var(--focus-ring)]"
         />
       </label>
@@ -93,16 +104,16 @@ export function Inspector() {
           <LengthField
             label="Width"
             value={item.footprint.w}
-            onChange={(v) => updateItem(item.id, { footprint: { kind: "rect", w: Math.max(0.25, v), d: (item.footprint as { d: number }).d } })}
+            onChange={(v) => updateItem(item.id, { footprint: { kind: "rect", w: Math.max(0.25 * scale, v), d: (item.footprint as { d: number }).d } })}
             unit={room.unit}
-            min={0.25}
+            min={0.25 * scale}
           />
           <LengthField
             label="Depth"
             value={item.footprint.d}
-            onChange={(v) => updateItem(item.id, { footprint: { kind: "rect", w: (item.footprint as { w: number }).w, d: Math.max(0.25, v) } })}
+            onChange={(v) => updateItem(item.id, { footprint: { kind: "rect", w: (item.footprint as { w: number }).w, d: Math.max(0.25 * scale, v) } })}
             unit={room.unit}
-            min={0.25}
+            min={0.25 * scale}
           />
         </div>
       )}
@@ -111,9 +122,9 @@ export function Inspector() {
         <LengthField
           label="Radius"
           value={item.footprint.r}
-          onChange={(v) => updateItem(item.id, { footprint: { kind: "circle", r: Math.max(0.1, v) } })}
+          onChange={(v) => updateItem(item.id, { footprint: { kind: "circle", r: Math.max(0.1 * scale, v) } })}
           unit={room.unit}
-          min={0.1}
+          min={0.1 * scale}
         />
       )}
 
@@ -125,8 +136,8 @@ export function Inspector() {
               overallW: size.w,
               overallD: size.d,
               notchCorner: "ne",
-              notchWidth: Math.max(0.5, size.w / 3),
-              notchDepth: Math.max(0.5, size.d / 3),
+              notchWidth: size.w / 3,
+              notchDepth: size.d / 3,
             }
           }
           onChange={(v) =>
@@ -138,7 +149,7 @@ export function Inspector() {
       )}
 
       <div className="grid grid-cols-2 gap-2">
-        <LengthField label="Height" value={item.height} onChange={(v) => updateItem(item.id, { height: Math.max(0.05, v) })} unit={room.unit} min={0.05} />
+        <LengthField label="Height" value={item.height} onChange={(v) => updateItem(item.id, { height: Math.max(0.01 * scale, v) })} unit={room.unit} min={0.01 * scale} />
         <LengthField label="Elevation" value={item.elevation} onChange={(v) => updateItem(item.id, { elevation: Math.max(0, v) })} unit={room.unit} min={0} />
       </div>
 

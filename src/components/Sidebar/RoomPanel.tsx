@@ -15,6 +15,7 @@ const WALL_LABELS: Record<AlcoveWall, string> = { n: "North", e: "East", s: "Sou
 
 export function RoomPanel() {
   const room = useStore((s) => s.activeRoom());
+  const scale = room.unit === "m" ? .3048 : 1;
   const setRoomUnit = useStore((s) => s.setRoomUnit);
   const renameRoom = useStore((s) => s.renameRoom);
   const setRoomShape = useStore((s) => s.setRoomShape);
@@ -24,9 +25,9 @@ export function RoomPanel() {
   const addOpening = useStore((s) => s.addOpening);
 
   const [alcoveWall, setAlcoveWall] = useState<AlcoveWall>("n");
-  const [alcoveWidth, setAlcoveWidth] = useState(3);
-  const [alcoveDepth, setAlcoveDepth] = useState(2);
-  const [alcoveOffset, setAlcoveOffset] = useState(1);
+  const [alcoveWidth, setAlcoveWidth] = useState(() => 3 * scale);
+  const [alcoveDepth, setAlcoveDepth] = useState(() => 2 * scale);
+  const [alcoveOffset, setAlcoveOffset] = useState(() => scale);
   const [editor, setEditor] = useState<{ wallIndex: number; openingId: string } | null>(null);
   const previousUnit = useRef(room.unit);
 
@@ -45,7 +46,6 @@ export function RoomPanel() {
   function addOpeningToWall(wallIndex: number, kind: OpeningKind) {
     const wall = walls[wallIndex];
     if (!wall) return;
-    const scale = room.unit === "m" ? 0.3048 : 1;
     const width = Math.min(3 * scale, Math.max(0.1 * scale, wall.length - 0.1 * scale));
     const offset = Math.max(0, (wall.length - width) / 2);
     const id = uuid();
@@ -71,8 +71,8 @@ export function RoomPanel() {
         width: shape.width,
         length: shape.length,
         notchCorner: shape.notchCorner ?? "ne",
-        notchWidth: shape.notchWidth ?? Math.max(1, shape.width / 3),
-        notchDepth: shape.notchDepth ?? Math.max(1, shape.length / 3),
+        notchWidth: shape.notchWidth ?? shape.width / 3,
+        notchDepth: shape.notchDepth ?? shape.length / 3,
       });
     }
   }
@@ -81,7 +81,7 @@ export function RoomPanel() {
     <section data-tour="room" className="flex flex-col gap-3 border-b border-[var(--border)] px-3.5 py-4">
       <label className="flex flex-col gap-1.5">
         <span className="text-xs text-[var(--text-muted)]">Room name</span>
-        <input key={`${room.id}:${room.name}`} aria-label="Room name" defaultValue={room.name} onBlur={(e) => { renameRoom(room.id, e.target.value); e.target.value = useStore.getState().activeRoom().name; }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} maxLength={80} className="h-9 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 text-xs text-[var(--text)] outline-none focus-visible:border-[var(--accent)]" />
+        <input key={`${room.id}:${room.name}`} aria-label="Room name" defaultValue={room.name} onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== room.name) renameRoom(room.id, e.target.value); e.target.value = useStore.getState().activeRoom().name; }} onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); e.currentTarget.value = room.name; e.currentTarget.blur(); } else if (e.key === "Enter") e.currentTarget.blur(); }} maxLength={80} className="h-9 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 text-xs text-[var(--text)] outline-none focus-visible:border-[var(--accent)]" />
       </label>
 
       <div className="flex items-center justify-between">
@@ -113,16 +113,16 @@ export function RoomPanel() {
           <LengthField
             label="Width"
             value={shape.width}
-            onChange={(v) => setRoomShape({ ...shape, width: Math.max(1, v) })}
+            onChange={(v) => setRoomShape({ ...shape, width: Math.max(scale, v) })}
             unit={room.unit}
-            min={1}
+            min={scale}
           />
           <LengthField
             label="Length"
             value={shape.length}
-            onChange={(v) => setRoomShape({ ...shape, length: Math.max(1, v) })}
+            onChange={(v) => setRoomShape({ ...shape, length: Math.max(scale, v) })}
             unit={room.unit}
-            min={1}
+            min={scale}
           />
         </div>
       ) : (
@@ -151,9 +151,9 @@ export function RoomPanel() {
       <LengthField
         label="Ceiling height"
         value={room.ceiling}
-        onChange={(v) => setRoomCeiling(Math.max(1, v))}
+        onChange={(v) => setRoomCeiling(Math.max(scale, v))}
         unit={room.unit}
-        min={1}
+        min={scale}
       />
 
       <details className="rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg-inset)] p-2.5 open:pb-3">
@@ -195,8 +195,8 @@ export function RoomPanel() {
             />
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <LengthField label="Width" value={alcoveWidth} onChange={setAlcoveWidth} unit={room.unit} min={0.5} />
-            <LengthField label="Depth" value={alcoveDepth} onChange={setAlcoveDepth} unit={room.unit} min={0.5} />
+            <LengthField label="Width" value={alcoveWidth} onChange={setAlcoveWidth} unit={room.unit} min={0.5 * scale} />
+            <LengthField label="Depth" value={alcoveDepth} onChange={setAlcoveDepth} unit={room.unit} min={0.5 * scale} />
             <LengthField label="Offset" value={alcoveOffset} onChange={setAlcoveOffset} unit={room.unit} min={0} />
           </div>
           <Button
@@ -239,6 +239,7 @@ export function RoomPanel() {
                     {wallOpenings.map((o) => (
                       <button
                         key={o.id}
+                        aria-label={`Edit ${o.kind} on wall ${wall.index + 1}`}
                         onClick={() => setEditor({ wallIndex: wall.index, openingId: o.id })}
                         className="flex items-center gap-1 rounded-[6px] border border-[var(--border)] bg-[var(--bg-inset)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] transition-colors duration-150 hover:border-[var(--border-strong)] hover:text-[var(--text)]"
                       >

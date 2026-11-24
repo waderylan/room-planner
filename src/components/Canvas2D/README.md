@@ -4,6 +4,11 @@ The 2D floor-plan editor, drawn as a single hand-rolled SVG. Handles pan/zoom (v
 `viewBox`), furniture drag and rotate, grid snapping, live overlap/out-of-bounds highlighting,
 and clearance measurements.
 
+Space-drag and middle-drag pan from any part of the canvas, including furniture. Gestures
+preview locally and commit once on release; selection-only clicks and unchanged resize/
+rotation handles do not create undo entries. The wall-opening elevation dialog uses the
+same preview/commit convention.
+
 ## Files
 
 - `Canvas2D.tsx` — the main component and interaction controller: owns the viewBox

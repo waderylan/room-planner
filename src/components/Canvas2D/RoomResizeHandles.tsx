@@ -16,8 +16,6 @@ interface RoomResizeHandlesProps {
 
 type DragMode = "width" | "depth" | "notch";
 
-const MIN_ROOM_SIZE = 1; // 1 ft
-
 /**
  * Drag handles for resizing the room directly on the canvas. The outline is always anchored
  * at (0,0) with no independent position (unlike furniture items), so only the east wall
@@ -28,6 +26,7 @@ export function RoomResizeHandles({ shape, svgRef, unitsPerPixel, onPreview }: R
   const setRoomShape = useStore((s) => s.setRoomShape);
   const resizeSensitivity = useStore((s) => s.resizeSensitivity);
   const unit = useStore((s) => s.activeRoom().unit);
+  const scale = unit === "m" ? .3048 : 1;
   const dragRef = useRef<{ mode: DragMode; startSvg: Vec2; start: RoomShape } | null>(null);
   const lastShapeRef = useRef(shape);
 
@@ -57,22 +56,23 @@ export function RoomResizeHandles({ shape, svgRef, unitsPerPixel, onPreview }: R
     }
 
     if (drag.mode === "width") {
-      preview({ ...start, width: Math.max(MIN_ROOM_SIZE, snapv(start.width + dx)) });
+      preview({ ...start, width: Math.max(scale, snapv(start.width + dx)) });
     } else if (drag.mode === "depth") {
-      preview({ ...start, length: Math.max(MIN_ROOM_SIZE, snapv(start.length + dy)) });
+      preview({ ...start, length: Math.max(scale, snapv(start.length + dy)) });
     } else if (start.kind === "lshape") {
       const corner = start.notchCorner ?? "se";
       const signW = corner === "ne" || corner === "se" ? -1 : 1;
       const signD = corner === "sw" || corner === "se" ? -1 : 1;
-      const nw = Math.max(0.5, snapv((start.notchWidth ?? 0) + signW * dx));
-      const nd = Math.max(0.5, snapv((start.notchDepth ?? 0) + signD * dy));
-      preview({ ...start, notchWidth: Math.min(nw, start.width - .5), notchDepth: Math.min(nd, start.length - .5) });
+      const margin = .25 * scale;
+      const nw = Math.max(margin, snapv((start.notchWidth ?? 0) + signW * dx));
+      const nd = Math.max(margin, snapv((start.notchDepth ?? 0) + signD * dy));
+      preview({ ...start, notchWidth: Math.min(nw, start.width - margin), notchDepth: Math.min(nd, start.length - margin) });
     }
   }
 
   function handlePointerUp(e: React.PointerEvent) {
     if (!dragRef.current) return;
-    setRoomShape(lastShapeRef.current);
+    if (JSON.stringify(lastShapeRef.current) !== JSON.stringify(dragRef.current.start)) setRoomShape(lastShapeRef.current);
     dragRef.current = null;
     onPreview(null);
     (e.target as Element).releasePointerCapture(e.pointerId);

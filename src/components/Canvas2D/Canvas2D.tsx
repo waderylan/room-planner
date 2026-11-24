@@ -179,6 +179,11 @@ export function Canvas2D() {
         viewBox={viewBoxString(viewBox)}
         className="h-full w-full touch-none select-none outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--accent)]"
         style={{ cursor: spaceHeld ? "grab" : "default" }}
+        onPointerDownCapture={(e) => {
+          if (e.button !== 1 && !(e.button === 0 && spaceHeld)) return;
+          handleBackgroundPointerDown(e);
+          e.stopPropagation();
+        }}
         onPointerDown={handleBackgroundPointerDown}
         onPointerMove={handleBackgroundPointerMove}
         onPointerUp={handleBackgroundPointerUp}
@@ -212,16 +217,16 @@ export function Canvas2D() {
               onLiveUpdate={(id, pos, rotDeg) => setDrag({ id, pos, rotDeg })}
               onCommitMove={(id, pos, skipSnap) => {
                 setDrag(null);
-                moveItem(id, pos, { skipSnap });
+                if (pos.x !== item.pos.x || pos.y !== item.pos.y) moveItem(id, pos, { skipSnap });
               }}
               onCommitRotate={(id, rotDeg) => {
                 setDrag(null);
-                rotateItem(id, rotDeg);
+                if (((rotDeg % 360) + 360) % 360 !== item.rotDeg) rotateItem(id, rotDeg);
               }}
               onLiveResize={(id, footprint, pos) => setDrag({ id, pos, rotDeg: item.rotDeg, footprint })}
               onCommitResize={(id, footprint, pos) => {
                 setDrag(null);
-                resizeItem(id, footprint, pos);
+                if (pos.x !== item.pos.x || pos.y !== item.pos.y || JSON.stringify(footprint) !== JSON.stringify(item.footprint)) resizeItem(id, footprint, pos);
               }}
             />
           ))}

@@ -482,34 +482,6 @@ select option {
 .design-card p span {
   color: var(--border-strong);
 }
-.new-design-card {
-  min-height: 296px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 15px;
-  border: 1px dashed var(--border-strong);
-  border-radius: 14px;
-  color: var(--text-muted);
-  font-size: 13px;
-  transition:
-    background 0.18s,
-    color 0.18s;
-}
-.new-design-card span {
-  width: 46px;
-  height: 46px;
-  background: var(--bg-elevated);
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-}
-.new-design-card:hover {
-  color: var(--accent);
-  background: var(--accent-soft);
-}
 .library-empty {
   padding: 45px;
   display: flex;
@@ -545,35 +517,6 @@ select option {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-}
-.new-template-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 11px;
-  margin-top: 22px;
-}
-.new-template {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-  color: var(--text);
-  padding-bottom: 10px;
-  text-align: left;
-  font-size: 12px;
-}
-.new-template.selected {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
-  background: var(--accent-soft);
-}
-.new-template .design-preview {
-  background: var(--preview-bg);
-  height: 100px;
-  padding: 5px;
-  margin-bottom: 9px;
-}
-.new-template span {
-  padding: 0 12px;
 }
 .editor-shell {
   display: flex;
@@ -728,36 +671,6 @@ select option {
   background: var(--bg-inset);
   font: 10px var(--font-mono);
 }
-.export-options {
-  display: grid;
-  gap: 10px;
-}
-.export-options > button {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px;
-  color: var(--text);
-  text-align: left;
-}
-.export-options > button:hover {
-  background: var(--bg-inset);
-}
-.export-options > button:disabled {
-  opacity: 0.45;
-}
-.export-options > button > span {
-  flex: 1;
-  font-size: 13px;
-}
-.export-format {
-  display: block;
-  color: var(--text-muted);
-  font-size: 11px;
-  margin-top: 3px;
-}
 .mobile-backdrop {
   position: fixed;
   inset: 0;
@@ -855,9 +768,6 @@ select option {
     font-size: 10px;
     gap: 4px;
   }
-  .new-design-card {
-    min-height: 245px;
-  }
   .editor-header {
     padding: 10px;
     min-height: 96px;
@@ -920,9 +830,6 @@ select option {
   }
   .design-open {
     height: 225px;
-  }
-  .new-design-card {
-    min-height: 125px;
   }
   .editor-header-actions {
     gap: 0;

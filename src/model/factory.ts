@@ -27,7 +27,7 @@ export function createRoom(name: string): Room {
 }
 
 export function createDoc(): Doc {
-  const room = createRoom("Living Room");
+  const room = createRoom("Room 1");
   return {
     version: 4,
     rooms: [room],

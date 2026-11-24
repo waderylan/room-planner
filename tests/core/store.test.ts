@@ -17,10 +17,12 @@ Object.defineProperty(globalThis, "localStorage", { value: storage, configurable
 const { useStore } = await import("../../src/store/store");
 const store = () => useStore.getState();
 
-test("a fresh default design has a persisted identity before the first editor action", () => {
+test("a fresh workspace persists an empty library without a phantom saved design", () => {
   const persisted = parseLibrary(storage.getItem(LIBRARY_KEY)!);
-  assert.equal(persisted.activeProjectId, store().activeProjectId);
-  assert.equal(persisted.projects[0].id, store().projects[0].id);
+  assert.equal(persisted.activeProjectId, "");
+  assert.deepEqual(persisted.projects, []);
+  assert.deepEqual(store().projects, []);
+  assert.equal(store().activeRoom().name, "Room 1");
   assert.equal(store().saveStatus, "saved");
 });
 
@@ -140,6 +142,8 @@ test("duplicate designs stay independent; deletion keeps a valid active design",
   const first = store().createProject("Original");
   store().addItemFromPreset(FURNITURE_PRESETS[0]);
   const second = store().duplicateProject(first)!;
+  assert.equal(store().activeProjectId, first);
+  store().openProject(second);
   const id = store().activeRoom().items[0].id;
   store().deleteItem(id);
   store().openProject(first);
@@ -148,6 +152,114 @@ test("duplicate designs stay independent; deletion keeps a valid active design",
   assert.ok(store().projects.some((p) => p.id === store().activeProjectId));
   assert.ok(store().projects.some((p) => p.id === second));
   assert.ok(store().activeRoom());
+});
+
+test("library duplication and inactive deletion preserve the active document and undo history", () => {
+  const first = store().createProject("Active design");
+  store().addItemFromPreset(FURNITURE_PRESETS[0]);
+  const doc = store().doc;
+  const history = store().historyPast;
+  const copy = store().duplicateProject(first)!;
+  assert.equal(store().activeProjectId, first);
+  assert.equal(store().doc, doc);
+  assert.equal(store().historyPast, history);
+  store().deleteProject(copy);
+  assert.equal(store().activeProjectId, first);
+  assert.equal(store().doc, doc);
+  assert.equal(store().historyPast, history);
+  store().undo();
+  assert.equal(store().activeRoom().items.length, 0);
+  store().flushSave();
+});
+
+test("new designs, imports and repeated copies receive distinct default names", () => {
+  const first = store().createProject("Living room");
+  const second = store().createProject("Living room");
+  assert.equal(store().projects.find((p) => p.id === second)?.name, "Living room 2");
+  const copy = store().duplicateProject(first)!;
+  const otherCopy = store().duplicateProject(first)!;
+  assert.equal(store().projects.find((p) => p.id === copy)?.name, "Living room copy");
+  assert.equal(store().projects.find((p) => p.id === otherCopy)?.name, "Living room copy 2");
+  store().importProject(JSON.stringify(createDoc()), "Living room");
+  assert.equal(store().projects.find((p) => p.id === store().activeProjectId)?.name, "Living room 3");
+});
+
+test("reselecting an existing item opens Selection without changing the document or history", () => {
+  store().createProject("Sidebar selection");
+  store().addItemFromPreset(FURNITURE_PRESETS[0]);
+  const item = store().activeRoom().items[0];
+  assert.equal(store().sidebarTab, "furniture");
+  const doc = store().doc;
+  const history = store().historyPast;
+  store().selectItem(item.id);
+  assert.equal(store().sidebarTab, "selection");
+  assert.equal(store().doc, doc);
+  assert.equal(store().historyPast, history);
+  store().selectItem(null);
+  assert.equal(store().sidebarTab, "furniture");
+  store().setSidebarTab("room");
+  store().selectItem(null);
+  assert.equal(store().sidebarTab, "room");
+  store().openProject(store().activeProjectId);
+  assert.equal(store().sidebarTab, "furniture");
+  store().flushSave();
+});
+
+test("mobile tools and assistant drawers are mutually exclusive without changing saved work", () => {
+  store().createProject("Drawer state");
+  const doc = store().doc;
+  const history = store().historyPast;
+  store().setChatOpen(true);
+  assert.equal(store().chatOpen, true);
+  assert.equal(store().sidebarOpen, false);
+  store().setSidebarOpen(true);
+  assert.equal(store().sidebarOpen, true);
+  assert.equal(store().chatOpen, false);
+  store().setChatOpen(true);
+  assert.equal(store().chatOpen, true);
+  assert.equal(store().sidebarOpen, false);
+  assert.equal(store().doc, doc);
+  assert.equal(store().historyPast, history);
+  store().setChatOpen(false);
+});
+
+test("new rooms inherit units and receive unique names after a room is removed", () => {
+  store().createProject("Metric rooms");
+  store().setRoomUnit("m");
+  store().addRoom();
+  assert.equal(store().activeRoom().unit, "m");
+  assert.equal(store().activeRoom().name, "Room 2");
+  const second = store().activeRoom().id;
+  store().addRoom();
+  assert.equal(store().activeRoom().name, "Room 3");
+  store().deleteRoom(second);
+  store().addRoom();
+  assert.equal(store().activeRoom().name, "Room 2");
+  assert.equal(new Set(store().doc.rooms.map((room) => room.name)).size, store().doc.rooms.length);
+  store().flushSave();
+});
+
+test("unchanged move, rotation and name commits preserve geometry and undo history", () => {
+  const project = store().createProject("Unchanged commits");
+  store().addItemFromPreset(FURNITURE_PRESETS[0]);
+  const id = store().activeRoom().items[0].id;
+  store().updateItem(id, { pos: { x: 1.13, y: 1.13 } });
+  const doc = store().doc;
+  const history = store().historyPast;
+  const projects = store().projects;
+  store().moveItem(id, { x: 1.13, y: 1.13 });
+  store().rotateItem(id, 360);
+  store().renameRoom(store().activeRoom().id, store().activeRoom().name);
+  store().renameProject(project, "Unchanged commits");
+  assert.equal(store().doc, doc);
+  assert.equal(store().historyPast, history);
+  assert.equal(store().projects, projects);
+  assert.deepEqual(store().activeRoom().items[0].pos, { x: 1.13, y: 1.13 });
+  store().updateItem(id, { pos: { x: 1, y: 1 } });
+  const snappedDoc = store().doc;
+  store().moveItem(id, { x: 1.05, y: 1.05 });
+  assert.equal(store().doc, snappedDoc);
+  store().flushSave();
 });
 
 test("file imports create an independent design and failed imports preserve current work", () => {
@@ -177,4 +289,18 @@ test("position and shape edits reject nonfinite numbers before persistence", () 
   assert.ok(store().activeRoom().items[0].pos.y >= 0);
   assert.equal(store().flushSave(), true);
   assert.ok(parseLibrary(storage.getItem(LIBRARY_KEY)!));
+});
+
+test("deleting the final design leaves a durable empty library", () => {
+  for (const project of [...store().projects]) store().deleteProject(project.id);
+  assert.deepEqual(store().projects, []);
+  assert.equal(store().activeProjectId, "");
+  assert.equal(store().historyPast.length, 0);
+  const restored = parseLibrary(storage.getItem(LIBRARY_KEY)!);
+  assert.deepEqual(restored.projects, []);
+  assert.equal(restored.activeProjectId, "");
+  // Editor mutations cannot accidentally save the internal scratch document.
+  store().addItemFromPreset(FURNITURE_PRESETS[0]);
+  assert.equal(store().activeRoom().items.length, 0);
+  assert.equal(store().projects.length, 0);
 });

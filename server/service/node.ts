@@ -1,9 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { handleServiceRequest, serviceResponse } from "./router";
 import type { SharingDatabase } from "../sharing/database";
+import { NodeBodyError, readNodeBody } from "../readNodeBody";
 
 /** Bound request buffering before constructing a Fetch request. No HTTP headers are logged. */
-export function createNodeService(db: SharingDatabase) {
+export function createNodeService(
+  db: SharingDatabase,
+  options: { bodyTimeoutMs?: number } = {},
+) {
   return async (req: IncomingMessage, res: ServerResponse) => {
     const controller = new AbortController();
     const close = () => {
@@ -11,17 +15,10 @@ export function createNodeService(db: SharingDatabase) {
     };
     res.on("close", close);
     try {
-      const chunks: Buffer[] = [];
-      let size = 0;
-      for await (const chunk of req) {
-        size += Buffer.byteLength(chunk);
-        if (size > 300_000) {
-          res.writeHead(413, { "content-type": "application/json" });
-          res.end(JSON.stringify({ error: "Request is too large." }));
-          return;
-        }
-        chunks.push(Buffer.from(chunk));
-      }
+      const body = await readNodeBody(req, {
+        maximumBytes: 300_000,
+        timeoutMs: options.bodyTimeoutMs,
+      });
       const headers = new Headers();
       for (const [key, value] of Object.entries(req.headers))
         if (value !== undefined)
@@ -31,9 +28,7 @@ export function createNodeService(db: SharingDatabase) {
         method,
         headers,
         signal: controller.signal,
-        ...(!["GET", "HEAD"].includes(method)
-          ? { body: Buffer.concat(chunks) }
-          : {}),
+        ...(!["GET", "HEAD"].includes(method) ? { body } : {}),
       });
       const response = await handleServiceRequest(request, db, {
         clientAddress: req.socket.remoteAddress ?? "local",
@@ -43,11 +38,18 @@ export function createNodeService(db: SharingDatabase) {
         Object.fromEntries(response.headers.entries()),
       );
       res.end(Buffer.from(await response.arrayBuffer()));
-    } catch {
-      if (controller.signal.aborted) return;
+    } catch (error) {
+      if (controller.signal.aborted || res.destroyed) return;
+      res.shouldKeepAlive = false;
+      res.setHeader("connection", "close");
       const response = serviceResponse(
-        { error: "Invalid service request." },
-        400,
+        {
+          error:
+            error instanceof NodeBodyError
+              ? error.message
+              : "Invalid service request.",
+        },
+        error instanceof NodeBodyError ? error.status : 400,
       );
       res.writeHead(
         response.status,

@@ -38,3 +38,4 @@ CREATE TABLE IF NOT EXISTS share_rate_limits (
   count INTEGER NOT NULL,
   expires_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS share_rate_limits_expiry ON share_rate_limits(expires_at);

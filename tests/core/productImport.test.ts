@@ -7,6 +7,8 @@ import {
   parsePastedSpecifications,
 } from "../../src/productImport/parser";
 import { ProductImportError } from "../../src/productImport/types";
+import { importProduct } from "../../src/productImport/client";
+import { BodyLimitError, readBoundedText } from "../../src/lib/boundedText";
 import {
   handleProductImport,
   importProductFromUrl,
@@ -70,6 +72,42 @@ test("IKEA product metadata supplies real product dimensions, not image or packa
   close(product.heightM, 0.45085);
   assert.equal(product.evidence.width?.source, "json-ld");
   assert.deepEqual(result.warnings, []);
+});
+
+test("deep or cyclic quantitative values stop before recursive metadata can exhaust the stack", () => {
+  const cycle: Record<string, unknown> = { unitCode: "CMT" };
+  cycle.value = cycle;
+  assert.equal(parseDimensionToMeters(cycle), undefined);
+  let nested: unknown = "80 cm";
+  for (let index = 0; index < 1000; index++) nested = { value: nested };
+  assert.equal(parseDimensionToMeters(nested), undefined);
+  const deep = '{"value":'.repeat(10_000) + '"80 cm"' + "}".repeat(10_000);
+  const result = extractProductCandidates(
+    `<script type="application/ld+json">{"@type":"Product","name":"Desk","width":${deep}}</script>`,
+    source,
+  );
+  assert.equal(result.candidates[0].widthM, undefined);
+  close(parseDimensionToMeters({ value: { value: 80, unitCode: "CMT" } }), 0.8);
+});
+
+test("metadata cannot replace a retailer product link with another origin", () => {
+  for (const url of [
+    "https://evil.test/product",
+    "https://127.0.0.1/",
+    "https://www.ikea.com:8443/product",
+    "javascript:alert(1)",
+  ]) {
+    const result = extractProductCandidates(
+      html({ "@type": "Product", name: "Desk", url }),
+      source,
+    );
+    assert.equal(result.candidates[0].url, undefined);
+  }
+  const result = extractProductCandidates(
+    html({ "@type": "Product", name: "Desk", url: "/us/en/p/desk/" }),
+    source,
+  );
+  assert.equal(result.candidates[0].url, "https://www.ikea.com/us/en/p/desk/");
 });
 
 test("graph references and explicit additional properties preserve distinct product variants", () => {
@@ -316,6 +354,167 @@ test("retailer timeouts and caller cancellation stop the import", async () => {
   } finally {
     clearTimeout(keepAlive);
   }
+});
+
+test("a stalled retailer response body observes timeout and cancels its stream", async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const keepAlive = setTimeout(() => {}, 250);
+  try {
+    await assert.rejects(
+      importProductFromUrl(source, {
+        timeoutMs: 10,
+        fetchImpl: fakeFetch(
+          () =>
+            new Response(stream, { headers: { "content-type": "text/html" } }),
+        ),
+      }),
+      (error: unknown) =>
+        error instanceof ProductImportError && error.code === "timeout",
+    );
+    assert.equal(cancelled, true);
+  } finally {
+    clearTimeout(keepAlive);
+  }
+});
+
+test("timeout does not depend on a fetch adapter honoring cancellation before headers", async () => {
+  const keepAlive = setTimeout(() => {}, 250);
+  try {
+    await assert.rejects(
+      importProductFromUrl(source, {
+        timeoutMs: 10,
+        fetchImpl: fakeFetch(() => new Promise<Response>(() => {})),
+      }),
+      (error: unknown) =>
+        error instanceof ProductImportError && error.code === "timeout",
+    );
+  } finally {
+    clearTimeout(keepAlive);
+  }
+});
+
+test("blocked responses do not wait for an uncooperative body cancellation", async () => {
+  await assert.rejects(
+    importProductFromUrl(source, {
+      fetchImpl: fakeFetch(
+        () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              cancel() {
+                return new Promise<void>(() => {});
+              },
+            }),
+            { status: 403 },
+          ),
+      ),
+    }),
+    (error: unknown) =>
+      error instanceof ProductImportError && error.code === "blocked",
+  );
+});
+
+test("a stalled import request body is bounded by the operation timeout before fetching", async () => {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const request = new Request("http://localhost/api/furniture/import", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: stream,
+    duplex: "half",
+  } as RequestInit & { duplex: "half" });
+  const keepAlive = setTimeout(() => {}, 250);
+  try {
+    const result = await handleProductImport(request, {
+      timeoutMs: 10,
+      fetchImpl: fakeFetch(() => {
+        throw new Error("A stalled request must not fetch a retailer.");
+      }),
+    });
+    assert.equal(result.status, 504);
+    assert.equal(cancelled, true);
+  } finally {
+    clearTimeout(keepAlive);
+  }
+});
+
+test("client rejects oversized service bodies even when upstream cancellation never settles", async (t) => {
+  t.mock.method(
+    globalThis,
+    "fetch",
+    fakeFetch(
+      () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("x".repeat(100_001)));
+            },
+            cancel() {
+              return new Promise<void>(() => {});
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    ),
+  );
+  await assert.rejects(
+    importProduct(source),
+    (error: unknown) =>
+      error instanceof ProductImportError && error.code === "unavailable",
+  );
+});
+
+test("client cancellation interrupts a pending service body read", async (t) => {
+  let cancelled = false;
+  t.mock.method(
+    globalThis,
+    "fetch",
+    fakeFetch(
+      () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            cancel() {
+              cancelled = true;
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    ),
+  );
+  const controller = new AbortController();
+  const pending = importProduct(source, controller.signal);
+  const abort = setTimeout(() => controller.abort(), 10);
+  try {
+    await assert.rejects(pending, { name: "AbortError" });
+    assert.equal(cancelled, true);
+  } finally {
+    clearTimeout(abort);
+  }
+});
+
+test("empty stream chunks cannot bypass byte limits and starve cancellation timers", async () => {
+  let pulls = 0;
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pulls++;
+      controller.enqueue(new Uint8Array());
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  await assert.rejects(readBoundedText(stream, 100_000), BodyLimitError);
+  assert.equal(cancelled, true);
+  assert.ok(pulls <= 8193);
 });
 
 test("handler validates requests and returns product data without upstream HTML", async () => {

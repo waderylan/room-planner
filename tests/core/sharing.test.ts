@@ -11,7 +11,14 @@ import type {
   Participant,
   SharedLayout,
 } from "../../src/sharing/types";
-import { parseSharedLayout } from "../../src/sharing/client";
+import {
+  createShare,
+  fetchShare,
+  parseSharedLayout,
+  revokeShare,
+  SharingError,
+} from "../../src/sharing/client";
+import type { SharingStatement } from "../../server/sharing/database";
 
 type Database = ReturnType<typeof openServiceDatabase>;
 const start = Date.UTC(2026, 10, 23);
@@ -65,6 +72,37 @@ async function layout(db: Database, id: string, key?: string) {
   assert.equal(response.status, 200);
   return parseSharedLayout(await response.json());
 }
+
+test("feedback rejects lone UTF-16 surrogates so escaped JSON cannot exceed response bounds", async () => {
+  const db = openServiceDatabase(":memory:");
+  try {
+    const share = await create(db);
+    const identity = await join(db, share.id, "Unicode participant");
+    const option = (await layout(db, share.id)).options[0];
+    for (const text of ["\ud800".repeat(1000), "\udfff", "name\ud800tail"]) {
+      const response = await call(
+        db,
+        `/${share.id}/comments`,
+        "POST",
+        { optionId: option.id, text, clientId: crypto.randomUUID() },
+        identity.participantKey,
+      );
+      assert.equal(response.status, 400);
+    }
+    const text = "\u4e00".repeat(998) + "\ud83d\ude00";
+    const saved = await call(
+      db,
+      `/${share.id}/comments`,
+      "POST",
+      { optionId: option.id, text, clientId: crypto.randomUUID() },
+      identity.participantKey,
+    );
+    assert.equal(saved.status, 201);
+    assert.equal((await layout(db, share.id)).comments[0].text, text);
+  } finally {
+    db.close();
+  }
+});
 
 test("shared snapshots persist complete validated options and never expose management secrets", async () => {
   const db = openServiceDatabase(":memory:");
@@ -558,5 +596,292 @@ test("remote shared documents are validated before client rendering or copying",
         },
       ],
     }),
+  );
+});
+
+test("revocation racing a validated participant or feedback write prevents the SQL mutation", async () => {
+  for (const action of ["participants", "vote", "comments"] as const) {
+    const db = openServiceDatabase(":memory:");
+    try {
+      const share = await create(db);
+      const person = await join(db, share.id, "Alice");
+      const options = (await layout(db, share.id)).options;
+      await call(
+        db,
+        `/${share.id}/vote`,
+        "PUT",
+        { optionId: options[0].id },
+        person.participantKey,
+      );
+      const original = db.prepare.bind(db);
+      let intercepted = false;
+      const table =
+        action === "participants"
+          ? "share_participants"
+          : action === "vote"
+            ? "share_votes"
+            : "share_comments";
+      db.prepare = (sql: string): SharingStatement => {
+        const statement = original(sql);
+        if (!sql.startsWith(`INSERT INTO ${table} `)) return statement;
+        const bind = statement.bind.bind(statement);
+        statement.bind = (...values) => {
+          const bound = bind(...values);
+          const run = bound.run.bind(bound);
+          bound.run = async () => {
+            intercepted = true;
+            await original("UPDATE shares SET revoked_at = ? WHERE id = ?")
+              .bind(start + 1, share.id)
+              .run();
+            return run();
+          };
+          return bound;
+        };
+        return statement;
+      };
+      const body =
+        action === "participants"
+          ? { name: "Late participant" }
+          : action === "vote"
+            ? { optionId: options[1].id }
+            : {
+                optionId: options[0].id,
+                text: "Late comment",
+                clientId: "revoke-race-comment",
+              };
+      const response = await call(
+        db,
+        `/${share.id}/${action}`,
+        action === "vote" ? "PUT" : "POST",
+        body,
+        action === "participants" ? undefined : person.participantKey,
+      );
+      assert.ok(intercepted, action);
+      assert.equal(response.status, 404, action);
+      assert.equal(
+        (
+          await original(
+            "SELECT COUNT(*) AS count FROM share_participants",
+          ).first<{ count: number }>()
+        )?.count,
+        1,
+      );
+      assert.equal(
+        (
+          await original("SELECT COUNT(*) AS count FROM share_comments").first<{
+            count: number;
+          }>()
+        )?.count,
+        0,
+      );
+      assert.equal(
+        (
+          await original("SELECT option_id FROM share_votes").first<{
+            option_id: string;
+          }>()
+        )?.option_id,
+        options[0].id,
+      );
+    } finally {
+      db.close();
+    }
+  }
+});
+
+test("a request crossing invitation expiry cannot create a participant, vote, or comment", async () => {
+  for (const action of ["participants", "vote", "comments"] as const) {
+    const db = openServiceDatabase(":memory:");
+    try {
+      const share = await create(db);
+      const person = await join(db, share.id, "Alice");
+      const optionId = (await layout(db, share.id)).options[0].id;
+      let clockCalls = 0;
+      const body =
+        action === "participants"
+          ? { name: "Late participant" }
+          : action === "vote"
+            ? { optionId }
+            : {
+                optionId,
+                text: "Late comment",
+                clientId: "expiry-race-comment",
+              };
+      const response = await handleSharingRequest(
+        new Request(`https://service.test/api/shares/${share.id}/${action}`, {
+          method: action === "vote" ? "PUT" : "POST",
+          headers: {
+            "content-type": "application/json",
+            Authorization: `Bearer ${person.participantKey}`,
+          },
+          body: JSON.stringify(body),
+        }),
+        db,
+        {
+          clientAddress: "expiry-client",
+          now: () => (clockCalls++ === 0 ? start : Date.parse(share.expiresAt)),
+        },
+      );
+      assert.equal(response.status, 404, action);
+      assert.equal(
+        (
+          await db
+            .prepare("SELECT COUNT(*) AS count FROM share_participants")
+            .first<{ count: number }>()
+        )?.count,
+        1,
+      );
+      assert.equal(
+        (
+          await db
+            .prepare("SELECT COUNT(*) AS count FROM share_comments")
+            .first<{ count: number }>()
+        )?.count,
+        0,
+      );
+      assert.equal(
+        (
+          await db
+            .prepare("SELECT COUNT(*) AS count FROM share_votes")
+            .first<{ count: number }>()
+        )?.count,
+        0,
+      );
+    } finally {
+      db.close();
+    }
+  }
+});
+
+test("JSON request bodies enforce exact MIME, UTF-8, chunk bounds, and client cancellation", async () => {
+  const db = openServiceDatabase(":memory:");
+  try {
+    const make = (
+      body: BodyInit,
+      headers: Record<string, string> = {},
+      signal?: AbortSignal,
+    ) =>
+      new Request("https://service.test/api/shares", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+        body,
+        signal,
+        ...(body instanceof ReadableStream ? { duplex: "half" } : {}),
+      } as RequestInit);
+    const run = (request: Request) =>
+      handleSharingRequest(request, db, { now: () => start });
+    assert.equal(
+      (await run(make("{}", { "content-type": "application/jsonp" }))).status,
+      415,
+    );
+    assert.equal(
+      (
+        await run(
+          make(
+            new Uint8Array([
+              123, 34, 116, 105, 116, 108, 101, 34, 58, 34, 0xff, 34, 125,
+            ]),
+          ),
+        )
+      ).status,
+      400,
+    );
+    let cancelled = false;
+    const fragments = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array());
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    assert.equal((await run(make(fragments))).status, 400);
+    assert.ok(cancelled);
+    const abort = new AbortController();
+    let stalledCancelled = false;
+    const stalled = new ReadableStream<Uint8Array>({
+      cancel() {
+        stalledCancelled = true;
+      },
+    });
+    const waiting = run(make(stalled, {}, abort.signal));
+    setTimeout(() => abort.abort(), 10);
+    assert.equal((await waiting).status, 400);
+    assert.ok(stalledCancelled);
+  } finally {
+    db.close();
+  }
+});
+
+test(
+  "a stalled upload reaches the bounded request-body deadline",
+  { timeout: 15_000 },
+  async () => {
+    const db = openServiceDatabase(":memory:");
+    try {
+      let cancelled = false;
+      const response = await handleSharingRequest(
+        new Request("https://service.test/api/shares", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: new ReadableStream({
+            cancel() {
+              cancelled = true;
+            },
+          }),
+          duplex: "half",
+        } as RequestInit),
+        db,
+        { now: () => start },
+      );
+      assert.equal(response.status, 408);
+      assert.ok(cancelled);
+    } finally {
+      db.close();
+    }
+  },
+);
+
+test("sharing clients reject unsafe invitation paths and oversized or malformed remote responses", async (t) => {
+  let fetches = 0;
+  const mock = t.mock.method(globalThis, "fetch", async () => {
+    fetches++;
+    return new Response("untrusted-response-content", {
+      headers: { "content-length": "2000000" },
+    });
+  });
+  for (const id of [
+    "../furniture/import",
+    "a".repeat(48) + "?redirect=/api",
+    "//other-host.test",
+    "not-an-invitation",
+  ]) {
+    await assert.rejects(
+      revokeShare(id, "b".repeat(64)),
+      (error) => error instanceof SharingError && error.status === 400,
+    );
+  }
+  assert.equal(fetches, 0);
+  await assert.rejects(
+    fetchShare("a".repeat(48)),
+    (error) =>
+      error instanceof SharingError &&
+      !error.message.includes("untrusted-response-content"),
+  );
+  mock.mock.mockImplementation(
+    async () => new Response(new Uint8Array(1_048_577)),
+  );
+  await assert.rejects(fetchShare("a".repeat(48)), SharingError);
+  mock.mock.mockImplementation(async () => new Response("null"));
+  await assert.rejects(
+    createShare("A", [
+      {
+        id: "local-design",
+        name: "A",
+        doc: createDoc(),
+        createdAt: new Date(start).toISOString(),
+        updatedAt: new Date(start).toISOString(),
+      },
+    ]),
+    SharingError,
   );
 });

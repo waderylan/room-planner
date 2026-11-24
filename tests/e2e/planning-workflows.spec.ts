@@ -206,9 +206,18 @@ test("shared layouts persist cross-browser votes and comments, and owner revocat
     await guest
       .getByRole("textbox", { name: "Comment on Choice A", exact: true })
       .fill("The sofa leaves more room here.");
+    const commentSaved = guest.waitForResponse(
+      (response) =>
+        response.url().endsWith("/comments") &&
+        response.request().method() === "POST",
+    );
     await guest
       .getByRole("button", { name: "Post comment", exact: true })
       .click();
+    expect((await commentSaved).status()).toBe(201);
+    await expect(
+      guest.getByRole("textbox", { name: "Comment on Choice A", exact: true }),
+    ).toHaveValue("");
     await guest.reload();
     await expect(
       guest.getByText("The sofa leaves more room here.", { exact: true }),

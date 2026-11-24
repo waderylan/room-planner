@@ -54,4 +54,6 @@ npm run test:assistant  # explicit live Kessel/Codex smoke; consumes provider qu
 - AGENTS.md is canonical. CLAUDE.md contains only `@AGENTS.md`. Use the same paired pattern for any nested instructions.
 - Every commit has a concise subject and a body of 1-4 `-` bullet points. No AI co-author trailers or AI-generation statements in PR descriptions.
 - Never commit credentials, browser storage, generated builds, browser-test traces, local preview screenshots, or provider account data.
+- Hosting must remain on Workers Free with no paid fallback. Never subscribe to or upgrade a Cloudflare plan to resolve a limit. Preserve the strict deployment policy, disabled historical version URLs, and atomic API budgets; provider Free limits are the billing boundary. Read `SECURITY.md` before hosting/security changes.
+- Backend changes require reviewed migrations and Worker redeployment; GitHub Pages deploys only the frontend. Stop all temporary local test servers when finished.
 - Preserve unrelated work. Keep agent-specific configuration outside shared instructions.

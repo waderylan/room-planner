@@ -1,11 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Plugin } from "vite";
+import { readBoundedJson } from "../src/lib/boundedJson";
+import { NodeBodyError, readNodeBody } from "./readNodeBody";
 
 const isLoopback = (host: string) =>
   ["127.0.0.1", "localhost", "::1", "[::1]", "::ffff:127.0.0.1"].includes(
     host.toLowerCase(),
   );
-const MAX_BODY = 2_000_000;
+const MAX_BODY = 1_000_000;
 
 function json(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
@@ -35,14 +37,11 @@ function localRequest(req: IncomingMessage): boolean {
 async function readBody(
   req: IncomingMessage,
 ): Promise<Record<string, unknown>> {
-  let size = 0;
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) {
-    size += Buffer.byteLength(chunk);
-    if (size > MAX_BODY) throw new Error("Request is too large.");
-    chunks.push(Buffer.from(chunk));
-  }
-  const body: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  const bytes = await readNodeBody(req, { maximumBytes: MAX_BODY, timeoutMs: 10_000 });
+  let text: string;
+  try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch { throw new SyntaxError("Invalid JSON encoding."); }
+  const body: unknown = JSON.parse(text);
   if (!body || typeof body !== "object" || Array.isArray(body))
     throw new Error("Invalid request.");
   return body as Record<string, unknown>;
@@ -150,6 +149,7 @@ export function kesselPlugin(): Plugin {
             redirect: "error",
           });
           if (!response.ok) {
+            void response.body?.cancel().catch(() => {});
             return json(
               res,
               isStatus ? 200 : 502,
@@ -168,11 +168,11 @@ export function kesselPlugin(): Plugin {
                   },
             );
           }
-          const data: unknown = await response.json();
+          const data = await readBoundedJson(response, 2_000_000, signal);
           if (isStatus) {
             const rows = (data as { data?: { id?: unknown }[] })?.data;
             const models = Array.isArray(rows)
-              ? rows
+              ? rows.slice(0, 100)
                   .map((row) => row.id)
                   .filter(
                     (id): id is string =>
@@ -196,6 +196,11 @@ export function kesselPlugin(): Plugin {
             });
           return json(res, 200, { choices });
         } catch (error) {
+          if (error instanceof NodeBodyError) {
+            res.shouldKeepAlive = false;
+            res.setHeader("Connection", "close");
+            return json(res, error.status, { error: error.message });
+          }
           if (abort.signal.aborted) return;
           return json(
             res,

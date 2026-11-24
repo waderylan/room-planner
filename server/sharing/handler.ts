@@ -67,6 +67,7 @@ function text(value: unknown, label: string, max: number) {
   if (
     typeof value !== "string" ||
     !value.trim() ||
+    /[\uD800-\uDFFF]/u.test(value) ||
     value.trim().length > max ||
     Array.from(value).some((character) => {
       const code = character.charCodeAt(0);
@@ -80,36 +81,58 @@ function text(value: unknown, label: string, max: number) {
 }
 async function body(request: Request): Promise<Record<string, unknown>> {
   if (
-    !request.headers
-      .get("content-type")
-      ?.toLowerCase()
-      .startsWith("application/json")
+    !/^application\/json(?:\s*;|$)/i.test(
+      request.headers.get("content-type") ?? "",
+    )
   )
     throw new HttpError(415, "Use JSON for this request.");
   if (Number(request.headers.get("content-length")) > MAX_BODY_BYTES)
     throw new HttpError(413, "Shared layouts must be smaller than 250 KB.");
   const reader = request.body?.getReader();
   if (!reader) throw new HttpError(400, "Request body is missing.");
-  const chunks: Uint8Array[] = [];
+  const bytes = new Uint8Array(MAX_BODY_BYTES);
   let length = 0;
-  while (true) {
-    const next = await reader.read();
-    if (next.done) break;
-    length += next.value.byteLength;
-    if (length > MAX_BODY_BYTES) {
-      await reader.cancel();
-      throw new HttpError(413, "Shared layouts must be smaller than 250 KB.");
+  let chunks = 0;
+  let done = false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const interrupted = new Promise<never>((_, reject) => {
+    timeout = setTimeout(
+      () =>
+        reject(new HttpError(408, "The request body timed out. Try again.")),
+      10_000,
+    );
+    onAbort = () => reject(new HttpError(400, "The request was interrupted."));
+    if (request.signal.aborted) onAbort();
+    else request.signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    while (true) {
+      const next = await Promise.race([reader.read(), interrupted]);
+      if (next.done) {
+        done = true;
+        break;
+      }
+      if (++chunks > 4096)
+        throw new HttpError(400, "The request body is too fragmented.");
+      if (length + next.value.byteLength > MAX_BODY_BYTES) {
+        throw new HttpError(413, "Shared layouts must be smaller than 250 KB.");
+      }
+      bytes.set(next.value, length);
+      length += next.value.byteLength;
     }
-    chunks.push(next.value);
-  }
-  const bytes = new Uint8Array(length);
-  let position = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, position);
-    position += chunk.byteLength;
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+    if (onAbort) request.signal.removeEventListener("abort", onAbort);
+    if (!done) void reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
   try {
-    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    const value: unknown = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(
+        bytes.subarray(0, length),
+      ),
+    );
     if (!value || typeof value !== "object" || Array.isArray(value))
       throw new Error();
     return value as Record<string, unknown>;
@@ -178,7 +201,8 @@ export async function handleSharingRequest(
   options: { clientAddress?: string; now?: () => number } = {},
 ): Promise<Response> {
   try {
-    const now = options.now?.() ?? Date.now();
+    const clock = () => options.now?.() ?? Date.now();
+    const now = clock();
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/$/, "");
     const address = (await hash(options.clientAddress ?? "local")).slice(0, 32);
@@ -315,15 +339,26 @@ export async function handleSharingRequest(
         participantKey = token();
       const result = await db
         .prepare(
-          "INSERT INTO share_participants (id, share_id, name, token_hash, created_at) SELECT ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM share_participants WHERE share_id = ?) < 500",
+          "INSERT INTO share_participants (id, share_id, name, token_hash, created_at) SELECT ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM share_participants WHERE share_id = ?) < 500 AND EXISTS (SELECT 1 FROM shares WHERE id = ? AND revoked_at IS NULL AND expires_at > ?)",
         )
-        .bind(participantId, id, name, await hash(participantKey), now, id)
+        .bind(
+          participantId,
+          id,
+          name,
+          await hash(participantKey),
+          now,
+          id,
+          id,
+          clock(),
+        )
         .run();
-      if (!result.meta?.changes)
+      if (!result.meta?.changes) {
+        await liveShare(db, id, clock());
         throw new HttpError(
           429,
           "This invitation has reached its participant limit.",
         );
+      }
       return json({ id: participantId, participantKey, name }, 201);
     }
     if (
@@ -341,12 +376,13 @@ export async function handleSharingRequest(
         throw new HttpError(400, "Choose a layout from this invitation.");
       if (action === "vote") {
         if (!optionId) throw new HttpError(400, "Choose a layout to vote for.");
-        await db
+        const result = await db
           .prepare(
-            "INSERT INTO share_votes (share_id, participant_id, option_id, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(share_id, participant_id) DO UPDATE SET option_id = excluded.option_id, updated_at = excluded.updated_at",
+            "INSERT INTO share_votes (share_id, participant_id, option_id, updated_at) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM shares WHERE id = ? AND revoked_at IS NULL AND expires_at > ?) ON CONFLICT(share_id, participant_id) DO UPDATE SET option_id = excluded.option_id, updated_at = excluded.updated_at",
           )
-          .bind(id, identity.id, optionId, now)
+          .bind(id, identity.id, optionId, now, id, clock())
           .run();
+        if (!result.meta?.changes) await liveShare(db, id, clock());
         return json({ optionId });
       }
       const comment = text(input.text, "comment", 1000),
@@ -359,15 +395,30 @@ export async function handleSharingRequest(
         )
         .bind(id, identity.id, clientId)
         .first<{ id: string }>();
-      if (existing) return json({ id: existing.id }, 200);
+      if (existing) {
+        await liveShare(db, id, clock());
+        return json({ id: existing.id }, 200);
+      }
       const commentId = token(16);
       const result = await db
         .prepare(
-          "INSERT INTO share_comments (id, share_id, participant_id, option_id, text, client_id, created_at) SELECT ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM share_comments WHERE share_id = ?) < 200 ON CONFLICT(share_id, participant_id, client_id) DO NOTHING",
+          "INSERT INTO share_comments (id, share_id, participant_id, option_id, text, client_id, created_at) SELECT ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM share_comments WHERE share_id = ?) < 200 AND EXISTS (SELECT 1 FROM shares WHERE id = ? AND revoked_at IS NULL AND expires_at > ?) ON CONFLICT(share_id, participant_id, client_id) DO NOTHING",
         )
-        .bind(commentId, id, identity.id, optionId, comment, clientId, now, id)
+        .bind(
+          commentId,
+          id,
+          identity.id,
+          optionId,
+          comment,
+          clientId,
+          now,
+          id,
+          id,
+          clock(),
+        )
         .run();
       if (!result.meta?.changes) {
+        await liveShare(db, id, clock());
         const duplicate = await db
           .prepare(
             "SELECT id FROM share_comments WHERE share_id = ? AND participant_id = ? AND client_id = ?",

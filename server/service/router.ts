@@ -4,6 +4,7 @@ import {
   handleProductImport,
   type ProductFetchOptions,
 } from "../productImport/handler";
+import { admitServiceRequest } from "./budget";
 
 export const DEFAULT_ORIGINS = [
   "https://waderylan.github.io",
@@ -84,6 +85,11 @@ export async function handleServiceRequest(
     headers.set("cache-control", "no-store");
     headers.set("referrer-policy", "no-referrer");
     headers.set("x-content-type-options", "nosniff");
+    headers.set(
+      "content-security-policy",
+      "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+    );
+    headers.set("x-frame-options", "DENY");
     headers.set("vary", "Origin");
     if (origin && allowed.has(origin)) {
       headers.set("access-control-allow-origin", origin);
@@ -113,7 +119,45 @@ export async function handleServiceRequest(
       ),
     );
   const path = new URL(request.url).pathname;
+  const routes: Record<string, string[]> = {
+    "/api/health": ["GET"],
+    "/api/furniture/import": ["POST"],
+    "/api/shares": ["POST"],
+  };
+  const methods =
+    routes[path] ??
+    (/^\/api\/shares\/[a-f0-9]{48}$/.test(path)
+      ? ["GET", "DELETE"]
+      : /^\/api\/shares\/[a-f0-9]{48}\/participants$/.test(path) ||
+          /^\/api\/shares\/[a-f0-9]{48}\/comments$/.test(path)
+        ? ["POST"]
+        : /^\/api\/shares\/[a-f0-9]{48}\/vote$/.test(path)
+          ? ["PUT"]
+          : null);
+  if (request.url.length > 4096)
+    return cors(serviceResponse({ error: "Request URL is too long." }, 414));
+  if (!methods) return cors(serviceResponse({ error: "Not found." }, 404));
+  if (!methods.includes(request.method))
+    return cors(serviceResponse({ error: "Method not allowed." }, 405));
   try {
+    request.signal.throwIfAborted();
+    const admission = await admitServiceRequest(
+      db,
+      options.clientAddress ?? "local",
+    );
+    if (!admission.allowed) {
+      const response = serviceResponse(
+        {
+          error:
+            path === "/api/furniture/import"
+              ? { code: "rate_limit", message: admission.message }
+              : admission.message,
+        },
+        admission.status,
+      );
+      response.headers.set("retry-after", String(admission.retryAfter));
+      return cors(response);
+    }
     if (path === "/api/health" && request.method === "GET") {
       await db.prepare("SELECT 1 AS ready").first();
       return cors(
@@ -149,11 +193,11 @@ export async function handleServiceRequest(
       );
     return cors(serviceResponse({ error: "Not found." }, 404));
   } catch {
-    return cors(
-      serviceResponse(
-        { error: "The service could not complete this request. Try again." },
-        500,
-      ),
+    const response = serviceResponse(
+      { error: "The service could not complete this request. Try again." },
+      503,
     );
+    response.headers.set("retry-after", "60");
+    return cors(response);
   }
 }

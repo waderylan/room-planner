@@ -80,6 +80,7 @@ export function createLibraryPersistence(
   let timer: ReturnType<typeof setTimeout> | null = null;
   let pending: ProjectLibrary | null = null;
   let previousRaw = initialRaw;
+  let checkedRecovery = false;
 
   function flush(): boolean {
     if (timer) clearTimeout(timer);
@@ -90,6 +91,13 @@ export function createLibraryPersistence(
       if (storage.getItem(LIBRARY_KEY) !== previousRaw) {
         onStatus("error", "Designs changed in another tab. Export your current work, then reload.");
         return false;
+      }
+      if (!checkedRecovery && previousRaw) {
+        let unreadable = false;
+        try { parseLibrary(previousRaw); } catch { unreadable = true; }
+        // A failed recovery write must not destroy the only copy of unreadable designs.
+        if (unreadable) storage.setItem(RECOVERY_KEY, previousRaw);
+        checkedRecovery = true;
       }
       const serialized = JSON.stringify(pending);
       storage.setItem(LIBRARY_KEY, serialized);

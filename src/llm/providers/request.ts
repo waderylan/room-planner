@@ -1,20 +1,24 @@
 import { LLMError } from "../types";
+import { readBoundedJson } from "../../lib/boundedJson";
 
 /** Provider response bodies can contain request data. Keep raw errors and keys out of the UI. */
 export async function providerRequest<T>(provider: string, url: string, init: RequestInit, signal?: AbortSignal, timeoutMs = 60_000): Promise<T> {
   const timeout = AbortSignal.timeout(timeoutMs);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
   try {
-    const response = await fetch(url, { ...init, signal: combined });
+    const response = await fetch(url, { ...init, signal: combined, redirect: "error", credentials: "omit", cache: "no-store", referrerPolicy: "no-referrer" });
     if (!response.ok) {
+      void response.body?.cancel().catch(() => {});
       const reason = response.status === 401 || response.status === 403 ? "Check your API key and model access."
         : response.status === 429 ? "Rate limit reached. Try again shortly."
+        : response.status === 413 ? "The conversation is too large. Clear the conversation and try a smaller request."
+        : response.status === 408 ? "The request took too long to upload. Try again."
         : response.status === 400 || response.status === 404 ? "Check the model name and tool support."
         : "The provider is unavailable. Try again.";
       throw new LLMError(`${provider} (${response.status}): ${reason}`);
     }
     try {
-      return await response.json() as T;
+      return await readBoundedJson<T>(response, 2_000_000, combined);
     } catch {
       signal?.throwIfAborted();
       if (timeout.aborted) throw new LLMError(`${provider} timed out. Try again.`);

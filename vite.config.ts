@@ -3,11 +3,35 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { kesselPlugin } from "./server/kesselPlugin.ts";
 import { plannerServicePlugin } from "./server/service/plugin.ts";
+import { productionContentSecurityPolicy } from "./server/securityPolicy.ts";
 
 // https://vite.dev/config/
 export default defineConfig({
   base: process.env.BASE_PATH || "/",
-  plugins: [react(), tailwindcss(), kesselPlugin(), plannerServicePlugin()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    kesselPlugin(),
+    plannerServicePlugin(),
+    {
+      name: "production-security-policy",
+      apply: "build",
+      transformIndexHtml() {
+        return [
+          {
+            tag: "meta",
+            attrs: {
+              "http-equiv": "Content-Security-Policy",
+              content: productionContentSecurityPolicy(
+                process.env.VITE_SERVICE_URL,
+              ),
+            },
+            injectTo: "head-prepend",
+          },
+        ];
+      },
+    },
+  ],
   server: {
     host: "127.0.0.1",
     fs: {

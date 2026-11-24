@@ -4,6 +4,9 @@
   "main": "server/service/worker.ts",
   "compatibility_date": "2026-11-23",
   "workers_dev": true,
+  "preview_urls": false,
+  "upload_source_maps": false,
+  "send_metrics": false,
   "vars": {
     "ALLOWED_ORIGINS": "https://waderylan.github.io",
   },

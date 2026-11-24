@@ -23,6 +23,11 @@ sizes, unitless numbers, unlabelled dimension orders, and ranges do not become f
 No scripts execute and no external JSON-LD references are fetched. Different color/size
 variants remain separate even if their names and dimensions match.
 
+The import operation also times out while reading a stalled request or retailer response body,
+and cancellation does not wait for an upstream stream to cooperate. Nested quantitative values
+stop after twelve levels. Metadata product links must retain the retailer origin; metadata cannot
+replace the user's source with another site. The browser caps API responses at 100 KB and fifteen seconds.
+
 Fixtures and tests live in `tests/fixtures/productImport/` and
 `tests/core/productImport.test.ts`. The IKEA LACK test data captures factual dimensions;
 the deterministic suite performs no network requests. A live check against

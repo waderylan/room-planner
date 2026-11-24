@@ -104,7 +104,9 @@ function validMeters(value: number | undefined): number | undefined {
 export function parseDimensionToMeters(
   value: unknown,
   unitHint?: string,
+  depth = 0,
 ): number | undefined {
+  if (depth > 12) return undefined;
   const object = record(value);
   if (object) {
     // A range is not one confirmed dimension.
@@ -113,6 +115,7 @@ export function parseDimensionToMeters(
     return parseDimensionToMeters(
       object.value,
       boundedText(object.unitCode) ?? boundedText(object.unitText) ?? unitHint,
+      depth + 1,
     );
   }
   if (typeof value === "number")
@@ -259,11 +262,15 @@ export function extractProductCandidates(
   };
   const candidates: ProductCandidate[] = [];
   const added = new Set<string>();
+  const processed = new Set<object>();
   function addProduct(value: unknown, parent?: Record<string, unknown>) {
+    if (candidates.length >= MAX_CANDIDATES) return;
     const node = resolve(value);
-    if (!node || !typeIs(node["@type"], "Product")) return;
+    if (!node || processed.has(node) || !typeIs(node["@type"], "Product"))
+      return;
     const name = boundedText(node.name) ?? boundedText(parent?.name);
     if (!name) return;
+    processed.add(node);
     const candidate: ProductCandidate = { name, evidence: {} };
     const variantLabel = [
       boundedText(node.color, 60),
@@ -280,7 +287,12 @@ export function extractProductCandidates(
       boundedText(parent?.brand, 120);
     if (sku) candidate.sku = sku;
     if (brand) candidate.brand = brand;
-    candidate.url = safeUrl(node.url ?? node["@id"], sourceUrl);
+    const productUrl = safeUrl(node.url ?? node["@id"], sourceUrl);
+    // Product metadata must not change a retailer link into an unrelated destination.
+    candidate.url =
+      productUrl && new URL(productUrl).origin === new URL(sourceUrl).origin
+        ? productUrl
+        : undefined;
     const image = Array.isArray(node.image) ? node.image[0] : node.image;
     candidate.imageUrl = safeUrl(
       record(image)?.contentUrl ?? record(image)?.url ?? image,

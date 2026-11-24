@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test, type TestContext } from "node:test";
 import { handleServiceRequest } from "../../server/service/router";
+import {
+  CLIENT_MINUTE_LIMIT,
+  DAILY_SERVICE_LIMIT,
+} from "../../server/service/budget";
 import { openServiceDatabase } from "../../server/service/sqlite";
 import { createDoc } from "../../src/model/factory";
 import type { ProductImportResult } from "../../src/productImport/types";
@@ -103,7 +107,7 @@ test("service health verifies the SQLite connection before reporting readiness",
     request("/api/health"),
     fixture.db,
   );
-  assert.equal(unavailable.status, 500);
+  assert.equal(unavailable.status, 503);
   assert.deepEqual(await unavailable.json(), {
     error: "The service could not complete this request. Try again.",
   });
@@ -412,4 +416,134 @@ test("import limits persist per hashed client and enforce the global cap before 
   assert.equal(global.status, 429);
   commonHeaders(global);
   assert.equal(fetches, 31);
+});
+
+test("daily admission stops atomically at the budget, survives reopen, and resets at UTC midnight", async (t) => {
+  const fixture = database(t);
+  let now = Date.UTC(2026, 10, 24, 12);
+  t.mock.method(Date, "now", () => now);
+  const day = Math.floor(now / 86_400_000);
+  await fixture.db
+    .prepare(
+      "INSERT INTO share_rate_limits (bucket,count,expires_at) VALUES (?,?,?)",
+    )
+    .bind(
+      `service:daily:${day}`,
+      DAILY_SERVICE_LIMIT - 1,
+      (day + 2) * 86_400_000,
+    )
+    .run();
+  const responses = await Promise.all(
+    ["first", "second"].map((clientAddress) =>
+      handleServiceRequest(request("/api/health"), fixture.db, {
+        clientAddress,
+      }),
+    ),
+  );
+  assert.deepEqual(
+    responses.map((response) => response.status).sort(),
+    [200, 503],
+  );
+  const stopped = responses.find((response) => response.status === 503)!;
+  assert.equal(stopped.headers.get("retry-after"), "43200");
+  assert.match((await stopped.json()).error, /daily service limit/);
+  commonHeaders(stopped);
+  fixture.reopen();
+  assert.equal(
+    (
+      await handleServiceRequest(request("/api/health"), fixture.db, {
+        clientAddress: "third",
+      })
+    ).status,
+    503,
+  );
+  assert.equal(
+    (
+      await fixture.db
+        .prepare("SELECT count FROM share_rate_limits WHERE bucket = ?")
+        .bind(`service:daily:${day}`)
+        .first<{ count: number }>()
+    )?.count,
+    DAILY_SERVICE_LIMIT,
+  );
+  now += 86_400_000;
+  assert.equal(
+    (await handleServiceRequest(request("/api/health"), fixture.db)).status,
+    200,
+  );
+});
+
+test("client throttles stop requests before consuming the shared daily allowance", async (t) => {
+  const fixture = database(t);
+  const now = Date.UTC(2026, 10, 24, 12);
+  t.mock.method(Date, "now", () => now);
+  for (let index = 0; index < CLIENT_MINUTE_LIMIT; index++)
+    assert.equal(
+      (
+        await handleServiceRequest(request("/api/health"), fixture.db, {
+          clientAddress: "single-client",
+        })
+      ).status,
+      200,
+    );
+  const denied = await handleServiceRequest(
+    request("/api/health"),
+    fixture.db,
+    { clientAddress: "single-client" },
+  );
+  assert.equal(denied.status, 429);
+  assert.equal(denied.headers.get("retry-after"), "60");
+  const daily = await fixture.db
+    .prepare("SELECT count FROM share_rate_limits WHERE bucket = ?")
+    .bind(`service:daily:${Math.floor(now / 86_400_000)}`)
+    .first<{ count: number }>();
+  assert.equal(daily?.count, CLIENT_MINUTE_LIMIT);
+  assert.equal(
+    (
+      await handleServiceRequest(request("/api/health"), fixture.db, {
+        clientAddress: "another-client",
+      })
+    ).status,
+    200,
+  );
+});
+
+test("invalid paths and methods do no database work, and expired counter cleanup uses an index", async (t) => {
+  const fixture = database(t);
+  const query = await fixture.db
+    .prepare(
+      "EXPLAIN QUERY PLAN DELETE FROM share_rate_limits WHERE expires_at <= ?",
+    )
+    .bind(Date.now())
+    .all<{ detail: string }>();
+  assert.ok(
+    query.results.some((row) =>
+      row.detail.includes("share_rate_limits_expiry"),
+    ),
+  );
+  fixture.close();
+  for (const path of [
+    "/api/missing",
+    "/api/shares/not-a-capability",
+    "/api/shares/" + "a".repeat(48) + "/unknown",
+  ])
+    assert.equal(
+      (await handleServiceRequest(request(path), fixture.db)).status,
+      404,
+    );
+  assert.equal(
+    (await handleServiceRequest(request("/api/shares"), fixture.db)).status,
+    405,
+  );
+  const failure = await handleServiceRequest(
+    request("/api/health"),
+    fixture.db,
+  );
+  assert.equal(failure.status, 503);
+  assert.equal(failure.headers.get("retry-after"), "60");
+  assert.equal(failure.headers.get("x-frame-options"), "DENY");
+  assert.match(
+    failure.headers.get("content-security-policy")!,
+    /default-src 'none'/,
+  );
 });

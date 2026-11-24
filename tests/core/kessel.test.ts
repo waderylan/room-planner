@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import type { ViteDevServer } from "vite";
 import { kesselPlugin } from "../../server/kesselPlugin";
 
@@ -47,6 +49,58 @@ test("nonlocal and non-Codex upstream URLs are rejected", async () => {
     const response = await fetch(`${origin}/api/local-ai/status`);
     assert.equal((await response.json()).available, false);
   }
+});
+
+test("oversized local assistant uploads are rejected before reaching Codex", async () => {
+  process.env.OPENAI_API_KEY = "kessel_test_private_key";
+  process.env.OPENAI_BASE_URL = "http://127.0.0.1:9/v1/codex";
+  const response = await fetch(`${origin}/api/local-ai/chat`, {
+    method: "POST",
+    headers: { Origin: origin, "Content-Type": "application/json", "x-room-planner-client": "1" },
+    body: "x".repeat(1_000_001),
+  });
+  assert.equal(response.status, 413);
+  assert.equal(response.headers.get("connection"), "close");
+  assert.doesNotMatch(await response.text(), /kessel_test_private_key|127\.0\.0\.1:9/);
+});
+
+test("local assistant rejects malformed UTF-8 instead of replacing request text", async () => {
+  process.env.OPENAI_API_KEY = "kessel_test_private_key";
+  process.env.OPENAI_BASE_URL = "http://127.0.0.1:9/v1/codex";
+  const response = await fetch(`${origin}/api/local-ai/chat`, {
+    method: "POST",
+    headers: { Origin: origin, "Content-Type": "application/json", "x-room-planner-client": "1" },
+    body: Buffer.concat([Buffer.from('{"model":"model","messages":[{"role":"user","content":"'), Buffer.from([0xff]), Buffer.from('"}],"tools":[]}')]),
+  });
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: "Invalid request JSON." });
+});
+
+test("local assistant uploads have an absolute deadline and close the failed connection", async (t) => {
+  process.env.OPENAI_API_KEY = "kessel_test_private_key";
+  process.env.OPENAI_BASE_URL = "http://127.0.0.1:9/v1/codex";
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const request = Object.assign(new PassThrough(), {
+    method: "POST", url: "/api/local-ai/chat", socket: { remoteAddress: "127.0.0.1" },
+    headers: { host: "127.0.0.1", origin: "http://127.0.0.1", "content-type": "application/json", "x-room-planner-client": "1" },
+  });
+  const headers = new Map<string, unknown>();
+  let body = "";
+  const response = Object.assign(new EventEmitter(), {
+    statusCode: 200, shouldKeepAlive: true, writableEnded: false,
+    setHeader(name: string, value: unknown) { headers.set(name, value); },
+    end(value: unknown) { body = String(value); this.writableEnded = true; },
+  });
+  try {
+    const result = middleware(request as unknown as IncomingMessage, response as unknown as ServerResponse, () => {});
+    t.mock.timers.tick(10_001);
+    await result;
+    assert.equal(response.statusCode, 408);
+    assert.equal(response.shouldKeepAlive, false);
+    assert.equal(headers.get("Connection"), "close");
+    assert.match(body, /timed out/);
+    assert.doesNotMatch(body, /kessel_test_private_key|127\.0\.0\.1:9/);
+  } finally { request.destroy(); }
 });
 
 test("same-origin proxy supplies the server key and returns only model/chat data", async () => {

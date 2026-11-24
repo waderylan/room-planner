@@ -39,7 +39,8 @@ function loadPersisted(): PersistedSettings {
       return safe;
     }
   } catch {
-    /* ignore malformed storage */
+    // Even unreadable legacy preferences may contain an API key. Never retain a recovery copy.
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* Storage may be unavailable. */ }
   }
   return { provider: defaultProvider(), models: { ...DEFAULT_MODELS } };
 }

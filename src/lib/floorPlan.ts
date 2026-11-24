@@ -7,7 +7,16 @@ import { formatLengthCompact } from "../format/length";
 import { fitViewBox, viewBoxString } from "../components/Canvas2D/viewBox";
 
 function xml(value: string): string {
-  return value.replace(
+  // JSON permits lone surrogates and controls that XML/data URLs cannot encode.
+  // Iterating code points preserves valid surrogate pairs (including emoji).
+  const clean = Array.from(value, (character) => {
+    const code = character.codePointAt(0)!;
+    return code === 9 || code === 10 || code === 13 ||
+      (code >= 0x20 && code <= 0xd7ff) ||
+      (code >= 0xe000 && code <= 0xfffd) || code >= 0x10000
+      ? character : "\ufffd";
+  }).join("");
+  return clean.replace(
     /[&<>"']/g,
     (character) =>
       ({

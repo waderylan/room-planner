@@ -3,6 +3,7 @@ import { migrateDoc } from "../model/migrate";
 import { serviceFetch } from "../service/client";
 import { readShareAccess } from "./access";
 import type { CreatedShare, Participant, SharedLayout } from "./types";
+import { readBoundedJson } from "../lib/boundedJson";
 
 export class SharingError extends Error {
   status: number;
@@ -13,13 +14,14 @@ export class SharingError extends Error {
 }
 
 async function request(path: string, init: RequestInit = {}): Promise<unknown> {
+  const signal = init.signal
+    ? AbortSignal.any([init.signal, AbortSignal.timeout(20_000)])
+    : AbortSignal.timeout(20_000);
   let response: Response;
   try {
     response = await serviceFetch(path, {
       ...init,
-      signal: init.signal
-        ? AbortSignal.any([init.signal, AbortSignal.timeout(20_000)])
-        : AbortSignal.timeout(20_000),
+      signal,
       headers: { "Content-Type": "application/json", ...init.headers },
     });
   } catch (error) {
@@ -31,7 +33,7 @@ async function request(path: string, init: RequestInit = {}): Promise<unknown> {
   }
   let value: unknown;
   try {
-    value = await response.json();
+    value = await readBoundedJson(response, 1_048_576, signal);
   } catch {
     throw new SharingError(
       "The sharing service returned an unreadable response.",
@@ -48,6 +50,12 @@ async function request(path: string, init: RequestInit = {}): Promise<unknown> {
     );
   }
   return value;
+}
+
+function invitationPath(id: string): string {
+  if (typeof id !== "string" || !/^[a-f0-9]{48}$/.test(id))
+    throw new SharingError("This invitation link is invalid.", 400);
+  return `/api/shares/${id}`;
 }
 
 export async function createShare(
@@ -67,6 +75,11 @@ export async function createShare(
     }),
   })) as CreatedShare;
   if (
+    !value ||
+    typeof value !== "object" ||
+    typeof value.id !== "string" ||
+    typeof value.ownerKey !== "string" ||
+    typeof value.expiresAt !== "string" ||
     !/^[a-f0-9]{48}$/.test(value.id) ||
     !/^[a-f0-9]{64}$/.test(value.ownerKey) ||
     !Number.isFinite(Date.parse(value.expiresAt))
@@ -88,6 +101,8 @@ export function parseSharedLayout(raw: unknown): SharedLayout {
     !/^[a-f0-9]{48}$/.test(value.id) ||
     typeof value.title !== "string" ||
     value.title.length > 120 ||
+    typeof value.createdAt !== "string" ||
+    typeof value.expiresAt !== "string" ||
     !Number.isFinite(Date.parse(value.createdAt)) ||
     !Number.isFinite(Date.parse(value.expiresAt)) ||
     !Array.isArray(value.options) ||
@@ -126,6 +141,7 @@ export function parseSharedLayout(raw: unknown): SharedLayout {
       comment.name.length > 40 ||
       typeof comment.text !== "string" ||
       comment.text.length > 1000 ||
+      typeof comment.createdAt !== "string" ||
       !Number.isFinite(Date.parse(comment.createdAt)) ||
       (comment.optionId !== null &&
         !options.some((option) => option.id === comment.optionId))
@@ -161,7 +177,7 @@ export async function fetchShare(
 ): Promise<SharedLayout> {
   const key = readShareAccess(id).participantKey;
   return parseSharedLayout(
-    await request(`/api/shares/${id}`, {
+    await request(invitationPath(id), {
       signal,
       ...(key ? { headers: { Authorization: `Bearer ${key}` } } : {}),
     }),
@@ -172,11 +188,15 @@ export async function joinShare(
   id: string,
   name: string,
 ): Promise<Participant> {
-  const value = (await request(`/api/shares/${id}/participants`, {
+  const value = (await request(`${invitationPath(id)}/participants`, {
     method: "POST",
     body: JSON.stringify({ name }),
   })) as Participant;
   if (
+    !value ||
+    typeof value !== "object" ||
+    typeof value.id !== "string" ||
+    typeof value.participantKey !== "string" ||
     typeof value.name !== "string" ||
     value.name.length > 40 ||
     !/^[a-f0-9]{48}$/.test(value.id) ||
@@ -193,7 +213,7 @@ export async function voteForLayout(
   optionId: string,
   participantKey: string,
 ): Promise<void> {
-  await request(`/api/shares/${id}/vote`, {
+  await request(`${invitationPath(id)}/vote`, {
     method: "PUT",
     headers: { Authorization: `Bearer ${participantKey}` },
     body: JSON.stringify({ optionId }),
@@ -206,14 +226,14 @@ export async function commentOnLayout(
   clientId: string,
   participantKey: string,
 ): Promise<void> {
-  await request(`/api/shares/${id}/comments`, {
+  await request(`${invitationPath(id)}/comments`, {
     method: "POST",
     headers: { Authorization: `Bearer ${participantKey}` },
     body: JSON.stringify({ optionId, text, clientId }),
   });
 }
 export async function revokeShare(id: string, ownerKey: string): Promise<void> {
-  await request(`/api/shares/${id}`, {
+  await request(invitationPath(id), {
     method: "DELETE",
     headers: { Authorization: `Bearer ${ownerKey}` },
   });

@@ -1,5 +1,10 @@
 import { extractProductCandidates } from "../../src/productImport/parser";
 import {
+  BodyLimitError,
+  readBoundedText,
+  withAbort,
+} from "../../src/lib/boundedText";
+import {
   ProductImportError,
   type ProductImportResult,
 } from "../../src/productImport/types";
@@ -21,6 +26,10 @@ export const SUPPORTED_RETAILER_HOSTS = new Set([
 const MAX_RESPONSE_BYTES = 2_000_000;
 const MAX_REQUEST_BYTES = 8_192;
 const TIMEOUT_MS = 10_000;
+
+function discardBody(response: Response): void {
+  void response.body?.cancel().catch(() => {});
+}
 
 export function validateProductUrl(value: unknown): URL {
   if (typeof value !== "string" || value.length > 2048)
@@ -54,29 +63,17 @@ async function boundedText(
   maximum: number,
   signal?: AbortSignal,
 ): Promise<string> {
-  if (!body) return "";
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let bytes = 0;
-  let text = "";
   try {
-    while (true) {
-      signal?.throwIfAborted();
-      const { done, value } = await reader.read();
-      if (done) break;
-      bytes += value.byteLength;
-      if (bytes > maximum) {
-        await reader.cancel();
-        throw new ProductImportError(
-          "oversized",
-          "The product page is too large. Enter dimensions instead.",
-        );
-      }
-      text += decoder.decode(value, { stream: true });
-    }
-    return text + decoder.decode();
-  } finally {
-    reader.releaseLock();
+    return await readBoundedText(body, maximum, signal);
+  } catch (error) {
+    if (error instanceof BodyLimitError)
+      throw new ProductImportError(
+        "oversized",
+        maximum === MAX_REQUEST_BYTES
+          ? "Request is too large."
+          : "The product page is too large. Enter dimensions instead.",
+      );
+    throw error;
   }
 }
 
@@ -101,19 +98,28 @@ export async function importProductFromUrl(
   try {
     for (let redirects = 0; redirects <= 3; redirects++) {
       signal.throwIfAborted();
-      const response = await fetchImpl(url.href, {
-        method: "GET",
-        redirect: "manual",
+      const fetching = Promise.resolve(
+        fetchImpl(url.href, {
+          method: "GET",
+          redirect: "manual",
+          signal,
+          headers: {
+            Accept: "text/html, application/xhtml+xml",
+            "User-Agent": "RoomPlannerFurnitureImporter/1.0",
+          },
+          credentials: "omit",
+          referrerPolicy: "no-referrer",
+        }),
+      );
+      const response = await withAbort(
+        fetching.then((result) => {
+          if (signal.aborted) discardBody(result);
+          return result;
+        }),
         signal,
-        headers: {
-          Accept: "text/html, application/xhtml+xml",
-          "User-Agent": "RoomPlannerFurnitureImporter/1.0",
-        },
-        credentials: "omit",
-        referrerPolicy: "no-referrer",
-      });
+      );
       if ([301, 302, 303, 307, 308].includes(response.status)) {
-        await response.body?.cancel();
+        discardBody(response);
         const location = response.headers.get("location");
         if (!location || redirects === 3)
           throw new ProductImportError(
@@ -131,7 +137,7 @@ export async function importProductFromUrl(
         continue;
       }
       if (!response.ok) {
-        await response.body?.cancel();
+        discardBody(response);
         if ([401, 403, 429].includes(response.status))
           throw new ProductImportError(
             "blocked",
@@ -147,7 +153,7 @@ export async function importProductFromUrl(
           response.headers.get("content-type") ?? "",
         )
       ) {
-        await response.body?.cancel();
+        discardBody(response);
         throw new ProductImportError(
           "unsupported",
           "This link is not a product page. Enter dimensions instead.",
@@ -155,7 +161,7 @@ export async function importProductFromUrl(
       }
       const length = Number(response.headers.get("content-length"));
       if (Number.isFinite(length) && length > MAX_RESPONSE_BYTES) {
-        await response.body?.cancel();
+        discardBody(response);
         throw new ProductImportError(
           "oversized",
           "The product page is too large. Enter dimensions instead.",
@@ -216,6 +222,12 @@ export async function handleProductImport(
       { error: { code: "invalid", message: "Use a JSON request." } },
       415,
     );
+  const timeout = AbortSignal.timeout(options.timeoutMs ?? TIMEOUT_MS);
+  const signal = AbortSignal.any([
+    request.signal,
+    timeout,
+    ...(options.signal ? [options.signal] : []),
+  ]);
   try {
     const contentLength = Number(request.headers.get("content-length"));
     if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES)
@@ -226,7 +238,7 @@ export async function handleProductImport(
     let input: unknown;
     try {
       input = JSON.parse(
-        await boundedText(request.body, MAX_REQUEST_BYTES, request.signal),
+        await boundedText(request.body, MAX_REQUEST_BYTES, signal),
       );
     } catch (error) {
       if (error instanceof ProductImportError) throw error;
@@ -242,19 +254,18 @@ export async function handleProductImport(
     return json(
       await importProductFromUrl((input as { url?: unknown }).url, {
         ...options,
-        signal: options.signal
-          ? AbortSignal.any([options.signal, request.signal])
-          : request.signal,
+        signal,
       }),
     );
   } catch (error) {
-    if (request.signal.aborted)
+    if (request.signal.aborted || options.signal?.aborted)
       return json(
         { error: { code: "unavailable", message: "Import was cancelled." } },
         499,
       );
-    const failure =
-      error instanceof ProductImportError
+    const failure = timeout.aborted
+      ? new ProductImportError("timeout", "Import took too long. Try again.")
+      : error instanceof ProductImportError
         ? error
         : new ProductImportError(
             "unavailable",

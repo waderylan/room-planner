@@ -78,6 +78,8 @@ Invitations require the backend below for access across devices. Personal librar
 
 ## Backend
 
+See [SECURITY.md](SECURITY.md) for the audit findings, free-only operating policy, request cutoffs, and remaining hosting trust boundaries. The API accepts at most 5,000 requests per UTC day and 60 requests per minute per IP; excess requests fail without a paid fallback. Provider-level zero-overage protection requires the account to remain on Workers Free.
+
 `npm run dev` includes product import and the sharing API through Vite. It initializes a durable SQLite database at `.room-planner/service.sqlite`; `ROOM_PLANNER_DATA_DIR` selects another data directory. This database contains published snapshots, participants, votes, comments, and rate limits. It must not be committed or served as static content.
 
 To run the local API separately:

@@ -1,4 +1,5 @@
 import { serviceFetch } from "../service/client";
+import { readBoundedJson } from "../lib/boundedJson";
 import {
   ProductImportError,
   type ProductImportErrorCode,
@@ -28,21 +29,27 @@ export async function importProduct(
   signal?: AbortSignal,
 ): Promise<ProductImportResult> {
   try {
+    const operationSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(15_000)])
+      : AbortSignal.timeout(15_000);
     const response = await serviceFetch("/api/furniture/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
-      signal,
+      signal: operationSignal,
     });
-    const data = (await response.json()) as ProductImportResult & {
-      error?: { code?: ProductImportErrorCode; message?: string };
-    };
+    const data = await readBoundedJson<
+      ProductImportResult & {
+        error?: { code?: ProductImportErrorCode; message?: string };
+      }
+    >(response, 100_000, operationSignal);
     if (!response.ok) {
       const code = data.error?.code;
       throw new ProductImportError(
         code && ERROR_CODES.has(code) ? code : "unavailable",
-        data.error?.message ||
-          "Product import is unavailable. Enter dimensions instead.",
+        typeof data.error?.message === "string" && data.error.message.trim()
+          ? data.error.message.slice(0, 240)
+          : "Product import is unavailable. Enter dimensions instead.",
       );
     }
     if (

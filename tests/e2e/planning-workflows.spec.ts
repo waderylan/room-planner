@@ -228,6 +228,9 @@ test("shared layouts persist cross-browser votes and comments, and owner revocat
     await page
       .getByRole("button", { name: "Revoke link", exact: true })
       .click();
+    await expect(
+      page.getByRole("dialog", { name: "Layout invitation", exact: true }),
+    ).not.toBeVisible();
     await guest.reload();
     await expect(guest.getByRole("alert")).toContainText(
       /expired|revoked|unavailable|not found/i,

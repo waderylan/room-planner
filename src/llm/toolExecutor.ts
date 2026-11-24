@@ -2,10 +2,11 @@ import { v4 as uuid } from "uuid";
 import { useStore } from "../store/store";
 import { FURNITURE_PRESETS, CUSTOM_PRESET } from "../model/presets";
 import { wallSegments } from "../geometry/openings";
-import { worldPolygon } from "../geometry/shape";
 import type { AlcoveWall, DoorHinge, Item, OpeningKind, RoomShape } from "../model/types";
 import type { Align, Corner, PlacementSpec, WallSide } from "./placement";
-import { computePlacement, interiorsOverlap, isFlat, itemCenter, roomBounds, roomIssues } from "./placement";
+import { computePlacement, isFlat, itemCenter, roomBounds, roomIssues } from "./placement";
+import { validateToolInput } from "./validation";
+import { itemsCollide } from "../model/collision";
 
 class ToolError extends Error {}
 
@@ -68,11 +69,14 @@ function getRoomState() {
 }
 
 function listPresets() {
+  const factor = useStore.getState().activeRoom().unit === "m" ? 0.3048 : 1;
   return [...FURNITURE_PRESETS, CUSTOM_PRESET].map((p) => ({
     id: p.id,
     name: p.name,
-    footprint: p.footprint,
-    height: p.height,
+    footprint: p.footprint.kind === "rect" ? { kind: "rect", w: p.footprint.w * factor, d: p.footprint.d * factor }
+      : p.footprint.kind === "circle" ? { kind: "circle", r: p.footprint.r * factor }
+      : { kind: "poly", points: p.footprint.points.map((point) => ({ x: point.x * factor, y: point.y * factor })) },
+    height: p.height * factor,
     color: p.color,
   }));
 }
@@ -100,6 +104,7 @@ function addItem(input: Record<string, unknown>) {
   const presetId = requireString(input, "presetId");
   const preset = findPreset(presetId);
   const store = useStore.getState();
+  if (store.activeRoom().items.length >= 500) throw new ToolError("This room has reached its 500-item limit.");
   store.addItemFromPreset(preset);
   const room = store.activeRoom();
   const item = room.items.find((it) => it.id === room.selectedItemId);
@@ -137,10 +142,9 @@ function addItem(input: Record<string, unknown>) {
 function overlapsOthers(id: string): boolean {
   const room = useStore.getState().activeRoom();
   const self = room.items.find((it) => it.id === id);
-  if (!self || isFlat(self)) return false;
-  const selfPoly = worldPolygon(self);
+  if (!self || isFlat(self, room.unit)) return false;
   return room.items.some(
-    (o) => o.id !== id && !o.hidden && !isFlat(o) && interiorsOverlap(selfPoly, worldPolygon(o)),
+    (o) => o.id !== id && itemsCollide(self, o, room.unit),
   );
 }
 
@@ -204,6 +208,7 @@ function buildSpec(input: Record<string, unknown>): PlacementSpec {
     case "beside": {
       const refId = optString(input, "ref");
       if (!refId) throw new ToolError('placement="beside" requires "ref" (the id of the item to place next to).');
+      if (!useStore.getState().activeRoom().items.some((item) => item.id === refId)) throw new ToolError("The reference item no longer exists. Read the room again.");
       const side = optString(input, "side") as WallSide | undefined;
       if (!side) throw new ToolError('placement="beside" requires "side" (n/e/s/w) relative to the reference item.');
       return { kind: "beside", refId, side, align, gap, rotDeg };
@@ -236,6 +241,7 @@ function placeItem(input: Record<string, unknown>) {
   const preset = findPreset(presetId);
   const spec = buildSpec(input);
   const store = useStore.getState();
+  if (store.activeRoom().items.length >= 500) throw new ToolError("This room has reached its 500-item limit.");
   store.addItemFromPreset(preset);
   const room = store.activeRoom();
   const created = room.items.find((it) => it.id === room.selectedItemId);
@@ -257,7 +263,7 @@ function placeItem(input: Record<string, unknown>) {
 
   const item = store.activeRoom().items.find((it) => it.id === id);
   if (!item) throw new ToolError("Failed to add item");
-  const result = computePlacement(store.activeRoom(), item.footprint, spec, id, isFlat(item));
+  const result = computePlacement(store.activeRoom(), item.footprint, spec, id, isFlat(item, store.activeRoom().unit));
   store.rotateItem(id, result.rotDeg);
   store.moveItem(id, result.pos, { skipSnap: true });
 
@@ -271,7 +277,7 @@ function moveByPlacement(input: Record<string, unknown>) {
   const item = store.activeRoom().items.find((it) => it.id === id);
   if (!item) throw new ToolError(`No item with id "${id}" in the active room.`);
   const spec = buildSpec(input);
-  const result = computePlacement(store.activeRoom(), item.footprint, spec, id, isFlat(item));
+  const result = computePlacement(store.activeRoom(), item.footprint, spec, id, isFlat(item, store.activeRoom().unit));
   store.rotateItem(id, result.rotDeg);
   store.moveItem(id, result.pos, { skipSnap: true });
   const final = store.activeRoom().items.find((it) => it.id === id);
@@ -331,10 +337,10 @@ function addOpening(input: Record<string, unknown>) {
     sillHeight: requireNumber(input, "sillHeight"),
     hinge: (optString(input, "hinge") as DoorHinge | undefined) ?? "left",
   });
-  return { id };
+  return { id, opening: store.activeRoom().openings.find((opening) => opening.id === id) };
 }
 
-export function executeTool(name: string, input: Record<string, unknown>): unknown {
+function executeValidatedTool(name: string, input: Record<string, unknown>): unknown {
   const store = useStore.getState();
   switch (name) {
     case "get_room_state":
@@ -357,7 +363,7 @@ export function executeTool(name: string, input: Record<string, unknown>): unkno
             }
           : { kind: "rect", width: requireNumber(input, "width"), length: requireNumber(input, "length") };
       store.setRoomShape(shape);
-      return { ok: true, shape };
+      return { ok: true, shape: store.activeRoom().shape };
     }
     case "set_room_unit":
       store.setRoomUnit(requireString(input, "unit") as "ft" | "m");
@@ -374,14 +380,20 @@ export function executeTool(name: string, input: Record<string, unknown>): unkno
       });
       return { ok: true };
     }
-    case "remove_alcove":
-      store.removeAlcove(requireString(input, "id"));
+    case "remove_alcove": {
+      const id = requireString(input, "id");
+      if (!store.activeRoom().alcoves.some((alcove) => alcove.id === id)) throw new ToolError("This alcove no longer exists.");
+      store.removeAlcove(id);
       return { ok: true };
+    }
     case "add_opening":
       return addOpening(input);
-    case "remove_opening":
-      store.removeOpening(requireString(input, "id"));
+    case "remove_opening": {
+      const id = requireString(input, "id");
+      if (!store.activeRoom().openings.some((opening) => opening.id === id)) throw new ToolError("This opening no longer exists.");
+      store.removeOpening(id);
       return { ok: true };
+    }
     case "add_item":
       return addItem(input);
     case "place_item":
@@ -398,10 +410,24 @@ export function executeTool(name: string, input: Record<string, unknown>): unkno
     }
     case "update_item":
       return updateItem(input);
-    case "remove_item":
-      store.deleteItem(requireString(input, "id"));
+    case "remove_item": {
+      const id = requireString(input, "id");
+      if (!store.activeRoom().items.some((item) => item.id === id)) throw new ToolError("This furniture no longer exists.");
+      store.deleteItem(id);
       return { ok: true };
+    }
     default:
       throw new ToolError(`Unknown tool "${name}"`);
   }
+}
+
+export function executeTool(name: string, input: Record<string, unknown>): unknown {
+  validateToolInput(name, input);
+  const previousToasts = new Set(useStore.getState().toasts.map((toast) => toast.id));
+  const result = executeValidatedTool(name, input);
+  // Store actions surface validation failures as toasts. Report the same failure
+  // back to the model so it can recover rather than claiming an edit succeeded.
+  const error = useStore.getState().toasts.find((toast) => toast.variant === "error" && !previousToasts.has(toast.id));
+  if (error) throw new ToolError(error.message);
+  return result;
 }

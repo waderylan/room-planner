@@ -46,7 +46,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "set_room_unit",
-    description: "Set the display unit for the active room.",
+    description: "Convert the active room and all its furniture, openings, and dimensions to feet or meters, preserving physical sizes.",
     parameters: {
       type: "object",
       properties: { unit: { type: "string", enum: ["ft", "m"] } },

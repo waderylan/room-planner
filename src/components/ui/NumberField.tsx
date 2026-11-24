@@ -20,7 +20,7 @@ export function NumberField({ label, value, onChange, step = 0.1, min, max, suff
   }, [value]);
 
   function commit(raw: string) {
-    const parsed = Number(raw);
+    const parsed = raw.trim() ? Number(raw) : Number.NaN;
     if (Number.isFinite(parsed)) {
       let v = parsed;
       if (min !== undefined) v = Math.max(min, v);
@@ -49,7 +49,8 @@ export function NumberField({ label, value, onChange, step = 0.1, min, max, suff
             }
           }}
           step={step}
-          className="tabular-nums w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 h-8 text-sm text-[var(--text)] outline-none transition-colors duration-150 hover:border-[var(--border-strong)] focus-visible:border-[var(--accent)] focus-visible:shadow-[var(--focus-ring)] disabled:opacity-40"
+          aria-label={label ?? suffix ?? "Number"}
+          className="tabular-nums min-w-0 w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 h-9 text-xs text-[var(--text)] outline-none transition-colors duration-150 hover:border-[var(--border-strong)] focus-visible:border-[var(--accent)] focus-visible:shadow-[var(--focus-ring)] disabled:opacity-40"
         />
         {suffix && <span className="ml-1.5 text-xs text-[var(--text-faint)] tabular-nums">{suffix}</span>}
       </div>

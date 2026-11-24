@@ -1,5 +1,6 @@
 import type { ProviderCallParams, ProviderResponse, Turn } from "../types";
 import { LLMError } from "../types";
+import { providerRequest, toolInput } from "./request";
 
 interface OpenAIToolCall {
   id: string;
@@ -41,35 +42,28 @@ function toMessages(system: string, turns: Turn[]) {
   return messages;
 }
 
-export async function callOpenAI({ apiKey, model, system, turns, tools }: ProviderCallParams): Promise<ProviderResponse> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+export async function callOpenAI({ apiKey, model, system, turns, tools, signal }: ProviderCallParams, endpoint = { url: "https://api.openai.com/v1/chat/completions", provider: "OpenAI", local: false }): Promise<ProviderResponse> {
+  const data = await providerRequest<{ choices: { message: OpenAIMessage }[] }>(endpoint.provider, endpoint.url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
+      ...(endpoint.local ? { "x-room-planner-client": "1" } : { authorization: `Bearer ${apiKey}` }),
     },
     body: JSON.stringify({
       model,
       messages: toMessages(system, turns),
       tools: tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })),
     }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new LLMError(`OpenAI API error (${res.status}): ${body.slice(0, 500)}`);
-  }
-
-  const data = (await res.json()) as { choices: { message: OpenAIMessage }[] };
+  }, signal, endpoint.local ? 180_000 : 60_000);
   const message = data.choices?.[0]?.message;
   if (!message) throw new LLMError("OpenAI response had no choices");
 
   const toolCalls: ProviderResponse["toolCalls"] = (message.tool_calls ?? []).map((tc) => {
     let input: Record<string, unknown> = {};
     try {
-      input = JSON.parse(tc.function.arguments || "{}");
+      input = toolInput(JSON.parse(tc.function.arguments || "{}"));
     } catch {
-      /* leave empty */
+      throw new LLMError(`${endpoint.provider} returned invalid tool arguments. Try again.`);
     }
     return { id: tc.id, name: tc.function.name, input };
   });

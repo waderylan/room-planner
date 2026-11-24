@@ -3,6 +3,7 @@ import type { Doc, Item, Room, RoomShape } from "./types";
 import type { FurniturePreset } from "./presets";
 import { buildOutline } from "../geometry/roomOutline";
 import { findFreeSpot } from "./freeSpot";
+import { scaleFootprint, unitScale } from "./units";
 
 export function defaultRoomShape(): RoomShape {
   return { kind: "rect", width: 12, length: 10 };
@@ -35,14 +36,16 @@ export function createDoc(): Doc {
 }
 
 export function itemFromPreset(preset: FurniturePreset, room: Room): Item {
+  const factor = unitScale("ft", room.unit);
   const item: Item = {
     id: uuid(),
     name: preset.name,
-    footprint: preset.footprint,
+    presetId: preset.id,
+    footprint: scaleFootprint(preset.footprint, factor),
     pos: { x: 0, y: 0 },
     rotDeg: 0,
-    height: preset.height,
-    elevation: preset.elevation ?? 0,
+    height: preset.height * factor,
+    elevation: (preset.elevation ?? 0) * factor,
     color: preset.color,
     hidden: false,
   };

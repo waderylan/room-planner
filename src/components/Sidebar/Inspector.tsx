@@ -6,6 +6,8 @@ import { NumberField } from "../ui/NumberField";
 import { LengthField } from "../ui/LengthField";
 import { Segmented } from "../ui/Segmented";
 import { LShapeEditor } from "../LShapeEditor";
+import { Copy, Trash, ArrowClockwise } from "@phosphor-icons/react";
+import { IconButton } from "../ui/IconButton";
 
 type ShapeKind = "rect" | "circle" | "lshape";
 
@@ -18,6 +20,9 @@ function shapeKindOf(fp: Footprint): ShapeKind {
 export function Inspector() {
   const room = useStore((s) => s.activeRoom());
   const updateItem = useStore((s) => s.updateItem);
+  const duplicateItem = useStore((s) => s.duplicateItem);
+  const deleteItem = useStore((s) => s.deleteItem);
+  const rotateItem = useStore((s) => s.rotateItem);
   const item = room.items.find((it) => it.id === room.selectedItemId);
 
   if (!item) {
@@ -52,7 +57,14 @@ export function Inspector() {
 
   return (
     <section className="flex flex-col gap-3 border-b border-[var(--border)] px-3.5 py-4">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-faint)]">Inspector</h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="min-w-0 truncate text-sm font-semibold text-[var(--text)]">{item.name}</h2>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <IconButton aria-label="Rotate selection" icon={<ArrowClockwise size={15} />} onClick={() => rotateItem(item.id, item.rotDeg + 90)} />
+          <IconButton aria-label="Duplicate selection" icon={<Copy size={15} />} onClick={() => duplicateItem(item.id)} />
+          <IconButton aria-label="Delete selection" icon={<Trash size={15} />} onClick={() => deleteItem(item.id)} className="hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]" />
+        </div>
+      </div>
 
       <label className="flex flex-col gap-1">
         <span className="text-xs text-[var(--text-muted)]">Name</span>
@@ -128,6 +140,11 @@ export function Inspector() {
       <div className="grid grid-cols-2 gap-2">
         <LengthField label="Height" value={item.height} onChange={(v) => updateItem(item.id, { height: Math.max(0.05, v) })} unit={room.unit} min={0.05} />
         <LengthField label="Elevation" value={item.elevation} onChange={(v) => updateItem(item.id, { elevation: Math.max(0, v) })} unit={room.unit} min={0} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <LengthField label="Position X" value={item.pos.x} onChange={(x) => updateItem(item.id, { pos: { ...item.pos, x } })} unit={room.unit} />
+        <LengthField label="Position Y" value={item.pos.y} onChange={(y) => updateItem(item.id, { pos: { ...item.pos, y } })} unit={room.unit} />
       </div>
 
       <NumberField

@@ -11,6 +11,7 @@ interface RoomResizeHandlesProps {
   shape: RoomShape;
   svgRef: RefObject<SVGSVGElement | null>;
   unitsPerPixel: number;
+  onPreview: (shape: RoomShape | null) => void;
 }
 
 type DragMode = "width" | "depth" | "notch";
@@ -23,10 +24,12 @@ const MIN_ROOM_SIZE = 1; // 1 ft
  * (width) and south wall (depth) can be dragged without shifting every item/opening/alcove
  * to compensate — matching how the sidebar's numeric width/length fields already behave.
  */
-export function RoomResizeHandles({ shape, svgRef, unitsPerPixel }: RoomResizeHandlesProps) {
+export function RoomResizeHandles({ shape, svgRef, unitsPerPixel, onPreview }: RoomResizeHandlesProps) {
   const setRoomShape = useStore((s) => s.setRoomShape);
   const resizeSensitivity = useStore((s) => s.resizeSensitivity);
+  const unit = useStore((s) => s.activeRoom().unit);
   const dragRef = useRef<{ mode: DragMode; startSvg: Vec2; start: RoomShape } | null>(null);
+  const lastShapeRef = useRef(shape);
 
   function handlePointerDown(mode: DragMode, e: React.PointerEvent) {
     e.stopPropagation();
@@ -34,6 +37,7 @@ export function RoomResizeHandles({ shape, svgRef, unitsPerPixel }: RoomResizeHa
     if (!svg) return;
     (e.target as Element).setPointerCapture(e.pointerId);
     dragRef.current = { mode, startSvg: screenToSvgPoint(svg, e.clientX, e.clientY), start: shape };
+    lastShapeRef.current = shape;
   }
 
   function handlePointerMove(e: React.PointerEvent) {
@@ -44,25 +48,33 @@ export function RoomResizeHandles({ shape, svgRef, unitsPerPixel }: RoomResizeHa
     const dx = (cur.x - drag.startSvg.x) * resizeSensitivity;
     const dy = (cur.y - drag.startSvg.y) * resizeSensitivity;
     const skipSnap = e.altKey;
-    const snapv = (v: number) => (skipSnap ? v : snap(v, INCH_FT));
+    const snapv = (v: number) => (skipSnap ? v : snap(v, unit === "m" ? .01 : INCH_FT));
     const start = drag.start;
 
+    function preview(next: RoomShape) {
+      lastShapeRef.current = next;
+      onPreview(next);
+    }
+
     if (drag.mode === "width") {
-      setRoomShape({ ...start, width: Math.max(MIN_ROOM_SIZE, snapv(start.width + dx)) });
+      preview({ ...start, width: Math.max(MIN_ROOM_SIZE, snapv(start.width + dx)) });
     } else if (drag.mode === "depth") {
-      setRoomShape({ ...start, length: Math.max(MIN_ROOM_SIZE, snapv(start.length + dy)) });
+      preview({ ...start, length: Math.max(MIN_ROOM_SIZE, snapv(start.length + dy)) });
     } else if (start.kind === "lshape") {
       const corner = start.notchCorner ?? "se";
       const signW = corner === "ne" || corner === "se" ? -1 : 1;
       const signD = corner === "sw" || corner === "se" ? -1 : 1;
       const nw = Math.max(0.5, snapv((start.notchWidth ?? 0) + signW * dx));
       const nd = Math.max(0.5, snapv((start.notchDepth ?? 0) + signD * dy));
-      setRoomShape({ ...start, notchWidth: nw, notchDepth: nd });
+      preview({ ...start, notchWidth: Math.min(nw, start.width - .5), notchDepth: Math.min(nd, start.length - .5) });
     }
   }
 
   function handlePointerUp(e: React.PointerEvent) {
+    if (!dragRef.current) return;
+    setRoomShape(lastShapeRef.current);
     dragRef.current = null;
+    onPreview(null);
     (e.target as Element).releasePointerCapture(e.pointerId);
   }
 
@@ -81,7 +93,7 @@ export function RoomResizeHandles({ shape, svgRef, unitsPerPixel }: RoomResizeHa
       : null;
 
   return (
-    <g>
+    <g onPointerCancel={() => { dragRef.current = null; onPreview(null); }}>
       <rect
         x={widthPos.x - r}
         y={widthPos.y - r}

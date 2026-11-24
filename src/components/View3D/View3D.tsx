@@ -14,6 +14,7 @@ export function View3D() {
   const cameraMode = useStore((s) => s.cameraMode);
   const wallsVisible = useStore((s) => s.wallsVisible);
   const theme = useStore((s) => s.theme);
+  const selectItem = useStore((s) => s.selectItem);
   const bgColor = theme === "dark" ? "#1c1c20" : "#eceef1";
 
   const bounds = useMemo(() => {
@@ -27,25 +28,37 @@ export function View3D() {
 
   const orbitTarget = to3D(bounds.center, room.ceiling / 3);
   const cameraStart = to3D(
-    { x: bounds.center.x + bounds.span * 1.1, y: bounds.center.y + bounds.span * 1.5 },
-    bounds.span * 1.3 + room.ceiling,
+    { x: bounds.center.x + bounds.span * 1.05, y: bounds.center.y + bounds.span * 1.35 },
+    bounds.span * 1.15 + room.ceiling * .3,
   );
 
   return (
     <div className="relative h-full w-full bg-[var(--bg-inset)]">
-      <Canvas shadows>
+      <Canvas shadows="percentage" dpr={[1, 2]} aria-label="3D room view" frameloop={cameraMode === "walk" ? "always" : "demand"} onPointerMissed={() => selectItem(null)} fallback={<div className="flex h-full items-center justify-center text-sm text-[var(--text-muted)]">3D view unavailable</div>}>
         <color attach="background" args={[bgColor]} />
         {cameraMode === "orbit" && (
           <PerspectiveCamera
             makeDefault
             position={[cameraStart.x, cameraStart.y, cameraStart.z]}
-            fov={55}
+            fov={45}
             near={0.05}
             far={500}
           />
         )}
-        <ambientLight intensity={0.65} />
-        <directionalLight position={[bounds.center.x + 8, 14, bounds.center.y + 6]} intensity={0.9} castShadow />
+        <ambientLight intensity={.85} />
+        <directionalLight
+          position={[bounds.center.x + bounds.span * .7, bounds.span * 1.6, bounds.center.y + bounds.span]}
+          intensity={1.1}
+          castShadow
+          shadow-mapSize={[1024, 1024]}
+          shadow-camera-left={-bounds.span}
+          shadow-camera-right={bounds.span}
+          shadow-camera-top={bounds.span}
+          shadow-camera-bottom={-bounds.span}
+          shadow-camera-far={bounds.span * 5}
+          shadow-bias={-.001}
+          shadow-radius={3}
+        />
 
         <Floor outline={room.outline} />
         {wallsVisible && (
@@ -62,9 +75,9 @@ export function View3D() {
           ))}
 
         {cameraMode === "orbit" ? (
-          <OrbitControls target={[orbitTarget.x, orbitTarget.y, orbitTarget.z]} makeDefault />
+          <OrbitControls target={[orbitTarget.x, orbitTarget.y, orbitTarget.z]} minDistance={bounds.span * .15} maxDistance={bounds.span * 6} maxPolarAngle={Math.PI / 2 - .03} makeDefault />
         ) : (
-          <WalkControls outline={room.outline} items={room.items} eyeHeight={6} ceiling={room.ceiling} />
+          <WalkControls outline={room.outline} items={room.items} eyeHeight={room.unit === "m" ? 1.8288 : 6} ceiling={room.ceiling} unitScale={room.unit === "m" ? .3048 : 1} />
         )}
       </Canvas>
 

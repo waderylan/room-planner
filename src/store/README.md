@@ -1,17 +1,27 @@
 # src/store/
 
-Application state, built on Zustand. The store is the single source of truth for the document
-plus UI state; components read slices from it and mutate only through its actions (so autosave
-and derived state stay consistent).
+Zustand state for the design library, active document, editor history, and UI. Mutate document
+state through store actions so history, library records, and autosave remain consistent.
 
-## Files
+- `store.ts`: `useStore` exposes `projects`, `activeProjectId`, `doc`, `saveStatus`, and
+  `saveError`. Design actions create, open, rename, duplicate, delete, and import designs.
+  The active project's `doc` is updated synchronously with the editor document. Imports
+  create an independent design and never append to or replace existing work.
+- Undo/redo keeps at most 80 immutable document snapshots per active design. Selection,
+  measurement mode, and room switching do not consume undo history. Continuous edits to
+  the same property are grouped within 600 ms. Opening another design clears the history.
+  `withHistoryGroup(token, fn)` groups synchronous tool mutations by request token. A later
+  batch can reuse the token only while no manual document edit has intervened. Its scope
+  is restored immediately after the callback, including when a callback throws.
+- `persistence.ts`: validates the versioned library in `room-planner:library:v1`, migrates
+  the legacy `room-planner:doc` without deleting it, and keeps an unreadable library in
+  `room-planner:library:recovery` where storage permits. Saves debounce for 350 ms and
+  flush on design changes, page hide, hidden visibility, and before unload. Quota errors
+  retain the pending save for retry and set `saveError`. Optimistic comparison of the
+  stored library prevents a stale tab from overwriting a newer tab's work.
+- `settingsStore.ts`: separate provider/model configuration. Provider credentials follow
+  its explicit credential-retention policy; design backups contain no provider settings.
+- `toast.ts`: feedback message types used by the store and toast UI.
 
-- `store.ts` — the main store: holds the `Doc` and all UI state (theme, view mode, camera mode,
-  snap, sidebar/walls/chat visibility, toasts) and every action that mutates them (rooms,
-  furniture, room shape, openings, selection, save/load). Rebuilds the outline and reclamps
-  openings when shape/alcoves change; autosaves on change.
-- `settingsStore.ts` — a separate store for LLM settings (active provider, per-provider model
-  names and API keys), with `DEFAULT_MODELS`. Persists to `localStorage`.
-- `persistence.ts` — loads the persisted doc on startup and debounces autosaving it to
-  `localStorage` (via `model/migrate.safeParseDoc` on load).
-- `toast.ts` — the `Toast` type and variants used by the toast actions and `ToastStack`.
+Local storage is browser- and origin-specific. Exported JSON files are portable design
+backups. No account, hosted database, or cloud service is required.

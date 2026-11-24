@@ -5,14 +5,16 @@ sit at the top level, and shared primitives live in `ui/`.
 
 ## Files
 
-- `Toolbar.tsx` — top toolbar: 2D/3D toggle, camera and measure-mode controls, snap toggle,
-  theme toggle, save/load, settings, and chat trigger.
+- `DesignLibrary.tsx` — local design management, room templates, search/sort, JSON import, and backups.
+- `DesignPreview.tsx` — document-driven floor-plan thumbnails.
+- `Toolbar.tsx` — design naming/save state, undo/redo, views, measurements, appearance, exports, and assistant.
 - `RoomTabs.tsx` — bottom room tabs: add, switch, inline-rename (double-click), duplicate, and
   delete rooms.
 - `LShapeEditor.tsx` — reusable visual L-shape editor (overall size + notch corner/size),
   shared by the room shape and furniture footprint editors.
 - `WallEditorDialog.tsx` — dialog for adding/editing wall openings (windows and doors) on a
   chosen wall, with offset, width, height, sill, and hinge side.
+- `ErrorBoundary.tsx` — recoverable failures for the application and lazy 3D view.
 
 ## Subdirectories
 

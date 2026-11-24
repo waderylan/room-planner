@@ -1,222 +1,296 @@
-import { useRef, useState } from "react";
-import { useStore } from "./../store/store";
+import { useState } from "react";
+import {
+  ArrowLeft,
+  ArrowCounterClockwise,
+  ArrowClockwise,
+  Check,
+  DownloadSimple,
+  DotsThree,
+  Keyboard,
+  List,
+  MagnetStraight,
+  Moon,
+  Sparkle,
+  Sun,
+  Wall,
+  WarningCircle,
+} from "@phosphor-icons/react";
+import { useStore } from "../store/store";
 import { Segmented } from "./ui/Segmented";
 import { IconButton } from "./ui/IconButton";
 import { Button } from "./ui/Button";
 import { Dialog } from "./ui/Dialog";
+import { Menu } from "./ui/Menu";
+import { InlineTextEdit } from "./ui/InlineTextEdit";
 import { SettingsDialog } from "./Settings/SettingsDialog";
-import {
-  DownloadSimple,
-  GameController,
-  GearSix,
-  Keyboard,
-  List,
-  MagnetStraight,
-  MoonStars,
-  Question,
-  Sparkle,
-  SunDim,
-  UploadSimple,
-  Wall,
-} from "@phosphor-icons/react";
+import { downloadDesign, downloadFloorPlan } from "../lib/files";
 
-const SHORTCUTS_2D: [string, string][] = [
-  ["Drag", "Move selected furniture"],
-  ["R", "Rotate 90 degrees"],
-  ["Rotation handle", "Free rotate (hold Shift for 1 degree steps)"],
-  ["Delete / Backspace", "Delete selected"],
-  ["Ctrl / Cmd + D", "Duplicate selected"],
+const SHORTCUTS = [
+  ["⌘ / Ctrl Z", "Undo"],
+  ["⌘ / Ctrl Shift Z", "Redo"],
+  ["⌘ / Ctrl D", "Duplicate furniture"],
+  ["R", "Rotate 90°"],
+  ["Arrow keys", "Move furniture"],
+  ["Delete", "Delete furniture"],
   ["Esc", "Deselect"],
   ["Alt + drag", "Ignore grid snap"],
   ["Scroll", "Zoom"],
-  ["Space + drag / middle drag", "Pan"],
+  ["Space + drag", "Pan"],
 ];
 
-const SHORTCUTS_WALK: [string, string][] = [
-  ["Click canvas", "Lock the mouse to look around"],
-  ["W A S D", "Move"],
-  ["H", "Raise the camera"],
-  ["L", "Lower the camera"],
-  ["Esc", "Release the mouse / exit walk mode"],
-];
-
-export interface ToolbarProps {
-  onBackToLanding?: () => void;
-}
-
-export function Toolbar({ onBackToLanding }: ToolbarProps) {
-  const viewMode = useStore((s) => s.viewMode);
-  const setViewMode = useStore((s) => s.setViewMode);
-  const cameraMode = useStore((s) => s.cameraMode);
-  const setCameraMode = useStore((s) => s.setCameraMode);
-  const room = useStore((s) => s.activeRoom());
-  const setMeasureMode = useStore((s) => s.setMeasureMode);
-  const snapEnabled = useStore((s) => s.snapEnabled);
-  const toggleSnap = useStore((s) => s.toggleSnap);
-  const theme = useStore((s) => s.theme);
-  const toggleTheme = useStore((s) => s.toggleTheme);
-  const exportDoc = useStore((s) => s.exportDoc);
-  const importDoc = useStore((s) => s.importDoc);
-  const sidebarOpen = useStore((s) => s.sidebarOpen);
-  const setSidebarOpen = useStore((s) => s.setSidebarOpen);
-  const wallsVisible = useStore((s) => s.wallsVisible);
-  const toggleWallsVisible = useStore((s) => s.toggleWallsVisible);
-
-  const chatOpen = useStore((s) => s.chatOpen);
-  const setChatOpen = useStore((s) => s.setChatOpen);
-  const setTourOpen = useStore((s) => s.setTourOpen);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
+export function Toolbar({ onBackToLanding }: { onBackToLanding?: () => void }) {
+  const state = useStore();
+  const project = state.projects.find((p) => p.id === state.activeProjectId)!;
+  const [renaming, setRenaming] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-
-  function onLoadClick() {
-    fileInputRef.current?.click();
-  }
-
-  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") importDoc(reader.result);
-    };
-    reader.readAsText(file);
-  }
+  const [exportOpen, setExportOpen] = useState(false);
+  const room = state.activeRoom();
 
   return (
-    <div className="flex h-14 shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-elevated)] px-3">
-      <IconButton
-        aria-label="Toggle sidebar"
-        icon={<List size={18} />}
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="md:hidden"
+    <>
+      <header className="editor-header">
+        <div className="editor-identity">
+          <IconButton
+            aria-label="Back to designs"
+            title="Back to designs"
+            icon={<ArrowLeft size={19} />}
+            onClick={onBackToLanding}
+          />
+          <span className="header-divider" />
+          {renaming ? (
+            <InlineTextEdit
+              value={project.name}
+              onCommit={(name) => state.renameProject(project.id, name)}
+              editing
+              onStopEditing={() => setRenaming(false)}
+              className="w-40"
+            />
+          ) : (
+            <button
+              className="project-title"
+              title="Rename design"
+              onClick={() => setRenaming(true)}
+            >
+              {project.name}
+            </button>
+          )}
+          <span
+            className={`save-status ${state.saveStatus === "error" ? "is-error" : ""}`}
+            role="status"
+            title={state.saveError || "Saved on this device"}
+          >
+            {state.saveStatus === "saved" ? (
+              <Check size={13} />
+            ) : state.saveStatus === "error" ? (
+              <WarningCircle size={15} />
+            ) : null}
+            <span>
+              {state.saveStatus === "saved"
+                ? "Saved"
+                : state.saveStatus === "saving"
+                  ? "Saving…"
+                  : "Not saved"}
+            </span>
+          </span>
+        </div>
+        <div className="editor-view-toggle">
+          <Segmented
+            options={[
+              { value: "2d", label: "2D plan" },
+              { value: "3d", label: "3D view" },
+            ]}
+            value={state.viewMode}
+            onChange={state.setViewMode}
+          />
+        </div>
+        <div className="editor-header-actions">
+          <IconButton
+            aria-label="Undo"
+            title="Undo (Ctrl Z)"
+            disabled={!state.historyPast.length}
+            icon={<ArrowCounterClockwise size={18} />}
+            onClick={state.undo}
+          />
+          <IconButton
+            aria-label="Redo"
+            title="Redo (Ctrl Shift Z)"
+            disabled={!state.historyFuture.length}
+            icon={<ArrowClockwise size={18} />}
+            onClick={state.redo}
+          />
+          <span className="header-divider hidden sm:block" />
+          <IconButton
+            aria-label={
+              state.theme === "dark"
+                ? "Switch to light mode"
+                : "Switch to dark mode"
+            }
+            icon={
+              state.theme === "dark" ? <Sun size={18} /> : <Moon size={18} />
+            }
+            onClick={state.toggleTheme}
+            className="hidden sm:inline-flex"
+          />
+          <Menu
+            trigger={
+              <IconButton
+                aria-label="Design options"
+                icon={<DotsThree size={21} weight="bold" />}
+              />
+            }
+            items={[
+              {
+                key: "shortcuts",
+                label: "Keyboard shortcuts",
+                onSelect: () => setHelpOpen(true),
+              },
+              {
+                key: "settings",
+                label: "Assistant settings",
+                onSelect: () => setSettingsOpen(true),
+              },
+              {
+                key: "theme",
+                label:
+                  state.theme === "dark"
+                    ? "Light appearance"
+                    : "Dark appearance",
+                onSelect: state.toggleTheme,
+              },
+            ]}
+          />
+          <Button
+            size="sm"
+            icon={<DownloadSimple size={16} />}
+            onClick={() => setExportOpen(true)}
+            className="export-button"
+          >
+            Export
+          </Button>
+        </div>
+      </header>
+      <div className="editor-tools">
+        <div className="flex min-w-0 items-center gap-2">
+          <IconButton
+            aria-label="Toggle sidebar"
+            active={state.sidebarOpen}
+            icon={<List size={19} />}
+            onClick={() => state.setSidebarOpen(!state.sidebarOpen)}
+            className="md:hidden"
+          />
+          <span className="active-room-name">{room.name}</span>
+          <span className="header-divider" />
+          {state.viewMode === "2d" ? (
+            <>
+              <Segmented
+                options={[
+                  { value: "wall", label: "Walls" },
+                  { value: "furniture", label: "Furniture" },
+                ]}
+                value={room.measureMode}
+                onChange={state.setMeasureMode}
+              />
+              <IconButton
+                aria-label="Toggle grid snap"
+                title="Snap to grid"
+                active={state.snapEnabled}
+                icon={<MagnetStraight size={18} />}
+                onClick={state.toggleSnap}
+              />
+            </>
+          ) : (
+            <>
+              <Segmented
+                options={[
+                  { value: "orbit", label: "Orbit" },
+                  { value: "walk", label: "Walk" },
+                ]}
+                value={state.cameraMode}
+                onChange={state.setCameraMode}
+              />
+              <IconButton
+                aria-label={state.wallsVisible ? "Hide walls" : "Show walls"}
+                icon={<Wall size={18} />}
+                active={state.wallsVisible}
+                onClick={state.toggleWallsVisible}
+              />
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <IconButton
+            aria-label="Keyboard shortcuts"
+            icon={<Keyboard size={18} />}
+            onClick={() => setHelpOpen(true)}
+            className="hidden sm:inline-flex"
+          />
+          <Button
+            size="sm"
+            variant={state.chatOpen ? "primary" : "ghost"}
+            icon={<Sparkle size={17} />}
+            onClick={() => state.setChatOpen(!state.chatOpen)}
+          >
+            Assistant
+          </Button>
+        </div>
+      </div>
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
       />
-
-      <div data-tour="view">
-        <Segmented
-          options={[
-            { value: "2d", label: "2D" },
-            { value: "3d", label: "3D" },
-          ]}
-          value={viewMode}
-          onChange={setViewMode}
-        />
-      </div>
-
-      {viewMode === "2d" && (
-        <Segmented
-          options={[
-            { value: "wall", label: "Wall" },
-            { value: "furniture", label: "Furniture" },
-          ]}
-          value={room.measureMode}
-          onChange={setMeasureMode}
-        />
-      )}
-
-      {viewMode === "2d" && (
-        <IconButton
-          aria-label="Toggle grid snap"
-          icon={<MagnetStraight size={16} />}
-          active={snapEnabled}
-          onClick={toggleSnap}
-        />
-      )}
-
-      {viewMode === "3d" && (
-        <Segmented
-          options={[
-            { value: "orbit", label: "Orbit" },
-            { value: "walk", label: "Walk" },
-          ]}
-          value={cameraMode}
-          onChange={setCameraMode}
-        />
-      )}
-
-      {viewMode === "3d" && (
-        <IconButton
-          aria-label={wallsVisible ? "Hide walls" : "Show walls"}
-          icon={<Wall size={16} />}
-          active={!wallsVisible}
-          onClick={toggleWallsVisible}
-        />
-      )}
-
-      <div className="ml-auto flex items-center gap-1.5">
-        {onBackToLanding && (
-          <IconButton aria-label="Back to landing page" icon={<GameController size={16} />} onClick={onBackToLanding} />
-        )}
-        <Button data-tour="save" size="sm" variant="secondary" icon={<DownloadSimple size={14} />} onClick={exportDoc}>
-          Save
-        </Button>
-        <Button size="sm" variant="secondary" icon={<UploadSimple size={14} />} onClick={onLoadClick}>
-          Load
-        </Button>
-        <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={onFileChange} />
-
-        <IconButton
-          aria-label="Take the tour"
-          icon={<Question size={16} />}
-          onClick={() => setTourOpen(true)}
-        />
-        <IconButton
-          aria-label="Keyboard shortcuts"
-          icon={<Keyboard size={16} />}
-          onClick={() => setHelpOpen(true)}
-        />
-        <IconButton
-          aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          icon={theme === "dark" ? <SunDim size={16} /> : <MoonStars size={16} />}
-          onClick={toggleTheme}
-        />
-        <IconButton data-tour="settings" aria-label="AI assistant settings" icon={<GearSix size={16} />} onClick={() => setSettingsOpen(true)} />
-        <Button
-          data-tour="assistant"
-          size="sm"
-          variant={chatOpen ? "primary" : "secondary"}
-          icon={<Sparkle size={14} />}
-          onClick={() => setChatOpen(!chatOpen)}
-        >
-          Assistant
-        </Button>
-      </div>
-
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-
-      <Dialog open={helpOpen} onClose={() => setHelpOpen(false)} title="Keyboard shortcuts">
-        <div className="flex flex-col gap-4">
-          <div>
-            <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-faint)]">
-              2D editor
-            </h3>
-            <ShortcutList items={SHORTCUTS_2D} />
-          </div>
-          <div>
-            <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-faint)]">
-              3D walk mode
-            </h3>
-            <ShortcutList items={SHORTCUTS_WALK} />
-          </div>
+      <Dialog
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        title="Keyboard shortcuts"
+      >
+        <dl className="shortcut-list">
+          {SHORTCUTS.map(([key, description]) => (
+            <div key={key}>
+              <dt>{description}</dt>
+              <dd>
+                <kbd>{key}</kbd>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </Dialog>
+      <Dialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        title="Export design"
+      >
+        <div className="export-options">
+          <button
+            onClick={() => {
+              downloadDesign(state.doc, project.name);
+              setExportOpen(false);
+            }}
+          >
+            <DownloadSimple size={22} />
+            <span>
+              Design backup<span className="export-format">JSON</span>
+            </span>
+            <DownloadSimple size={16} />
+          </button>
+          <button
+            disabled={state.viewMode !== "2d"}
+            onClick={() => {
+              downloadFloorPlan(project.name, room.outline);
+              setExportOpen(false);
+            }}
+          >
+            <DownloadSimple size={22} />
+            <span>
+              Floor plan
+              <span className="export-format">
+                SVG{state.viewMode !== "2d" ? " · Switch to 2D" : ""}
+              </span>
+            </span>
+            <DownloadSimple size={16} />
+          </button>
         </div>
       </Dialog>
-    </div>
-  );
-}
-
-function ShortcutList({ items }: { items: [string, string][] }) {
-  return (
-    <ul className="flex flex-col gap-1.5">
-      {items.map(([key, desc]) => (
-        <li key={key} className="flex items-center justify-between gap-3 text-xs">
-          <span className="rounded border border-[var(--border)] bg-[var(--bg-inset)] px-1.5 py-0.5 font-mono text-[var(--text)]">
-            {key}
-          </span>
-          <span className="text-right text-[var(--text-muted)]">{desc}</span>
-        </li>
-      ))}
-    </ul>
+    </>
   );
 }

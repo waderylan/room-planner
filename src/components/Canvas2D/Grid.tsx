@@ -36,7 +36,7 @@ export function Grid({ outline }: GridProps) {
         </clipPath>
       </defs>
       <g clipPath={`url(#${clipId})`}>
-        <rect x={minX} y={minY} width={maxX - minX} height={maxY - minY} fill="var(--bg-inset)" />
+        <rect x={minX} y={minY} width={maxX - minX} height={maxY - minY} fill="var(--bg-elevated)" />
         {lines.map((l) => (
           <line
             key={l.key}
@@ -46,6 +46,7 @@ export function Grid({ outline }: GridProps) {
             y2={l.y2}
             stroke={l.major ? "var(--border-strong)" : "var(--border)"}
             strokeWidth={l.major ? 1.1 : 0.7}
+            strokeOpacity={l.major ? .55 : .3}
             vectorEffect="non-scaling-stroke"
           />
         ))}

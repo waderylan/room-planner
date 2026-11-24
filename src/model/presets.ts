@@ -1,4 +1,4 @@
-import type { Footprint } from "./types";
+import type { Footprint, Item } from "./types";
 
 export interface FurniturePreset {
   id: string;
@@ -43,3 +43,10 @@ export const CUSTOM_PRESET: FurniturePreset = {
   height: 2.5,
   color: "#8a8f98",
 };
+
+/** Old designs used names as their only catalog identity. New ones preserve it on rename. */
+export function presetIdOf(item: Pick<Item, "name" | "presetId">): string | undefined {
+  if (item.presetId === "custom" || FURNITURE_PRESETS.some((preset) => preset.id === item.presetId)) return item.presetId;
+  const name = item.name.replace(/(?: copy)+$/i, "").trim().toLowerCase();
+  return FURNITURE_PRESETS.find((preset) => preset.name.toLowerCase() === name)?.id;
+}

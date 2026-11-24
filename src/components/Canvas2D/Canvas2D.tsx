@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../../store/store";
 import type { Vec2 } from "../../geometry/types";
-import type { Footprint } from "../../model/types";
+import type { Footprint, RoomShape } from "../../model/types";
+import { buildOutline } from "../../geometry/roomOutline";
 import { worldPolygon, isFullyInside } from "../../geometry/shape";
-import { polygonsIntersect } from "../../geometry/polygon";
+import { canShareFloorSpace, footprintInteriorsOverlap } from "../../model/collision";
 import { fitViewBox, viewBoxString, zoomViewBox, panViewBox, type ViewBox } from "./viewBox";
 import { screenToSvgPoint } from "./svgPoint";
 import { Grid } from "./Grid";
@@ -31,7 +32,18 @@ export function Canvas2D() {
   const [viewBox, setViewBox] = useState<ViewBox>(() => fitViewBox(room.outline));
   const [drag, setDrag] = useState<{ id: string; pos: Vec2; rotDeg: number; footprint?: Footprint } | null>(null);
   const [spaceHeld, setSpaceHeld] = useState(false);
+  const [draftShape, setDraftShape] = useState<RoomShape | null>(null);
+  const [viewport, setViewport] = useState({ width: 1000, height: 700 });
   const panRef = useRef<{ startClient: Vec2; startVb: ViewBox } | null>(null);
+  const outline = useMemo(() => draftShape ? buildOutline(draftShape, room.alcoves) : room.outline, [draftShape, room.alcoves, room.outline]);
+
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const observer = new ResizeObserver(([entry]) => setViewport({ width: entry.contentRect.width, height: entry.contentRect.height }));
+    observer.observe(svg);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     // re-fit whenever the outline itself changes (room switch, or a shape/alcove
@@ -41,18 +53,22 @@ export function Canvas2D() {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.code === "Space" && !isTypingTarget(e.target)) {
+      if (e.code === "Space" && !isTypingTarget(e.target) && e.target === svgRef.current) {
+        e.preventDefault();
         setSpaceHeld(true);
       }
     }
     function onKeyUp(e: KeyboardEvent) {
       if (e.code === "Space") setSpaceHeld(false);
     }
+    function onBlur() { setSpaceHeld(false); panRef.current = null; }
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
     };
   }, []);
 
@@ -65,29 +81,28 @@ export function Canvas2D() {
 
   const invalidIds = useMemo(() => {
     const invalid = new Set<string>();
-    const polys = effectiveItems.map((it) => ({ id: it.id, poly: worldPolygon(it), hidden: it.hidden }));
-    for (const a of polys) {
+    const polys = effectiveItems.map((it) => ({ ...it, poly: worldPolygon(it) }));
+    for (let i = 0; i < polys.length; i++) {
+      const a = polys[i];
       if (a.hidden) continue;
-      if (!isFullyInside(a.poly, room.outline)) invalid.add(a.id);
-      for (const b of polys) {
-        if (a.id === b.id || b.hidden) continue;
-        if (polygonsIntersect(a.poly, b.poly)) {
+      if (!isFullyInside(a.poly, outline)) invalid.add(a.id);
+      for (let j = i + 1; j < polys.length; j++) {
+        const b = polys[j];
+        if (canShareFloorSpace(a, b, room.unit)) continue;
+        if (footprintInteriorsOverlap(a.poly, b.poly)) {
           invalid.add(a.id);
           invalid.add(b.id);
         }
       }
     }
     return invalid;
-  }, [effectiveItems, room.outline]);
+  }, [effectiveItems, outline, room.unit]);
 
   const selected = effectiveItems.find((it) => it.id === room.selectedItemId);
 
   function unitsPerPixel(): number {
-    const svg = svgRef.current;
-    if (!svg) return 0.02;
-    const rect = svg.getBoundingClientRect();
-    if (rect.width === 0) return 0.02;
-    return viewBox.w / rect.width;
+    if (viewport.width <= 0 || viewport.height <= 0) return 0.02;
+    return Math.max(viewBox.w / viewport.width, viewBox.h / viewport.height);
   }
 
   useEffect(() => {
@@ -102,22 +117,25 @@ export function Canvas2D() {
       e.preventDefault();
       const center = screenToSvgPoint(svg!, e.clientX, e.clientY);
       const factor = e.deltaY > 0 ? WHEEL_ZOOM_FACTOR : 1 / WHEEL_ZOOM_FACTOR;
-      setViewBox((vb) => zoomViewBox(vb, factor, center));
+      const unitScale = room.unit === "m" ? .3048 : 1;
+      setViewBox((vb) => zoomViewBox(vb, factor, center, 2 * unitScale, Math.max(200 * unitScale, fitViewBox(room.outline).w * 4)));
     }
     svg.addEventListener("wheel", onWheel, { passive: false });
     return () => svg.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [room.unit, room.outline]);
 
   function zoomByButton(factor: number) {
     const svg = svgRef.current;
     const rect = svg?.getBoundingClientRect();
     setViewBox((vb) => {
       const center = rect ? screenToSvgPoint(svg!, rect.left + rect.width / 2, rect.top + rect.height / 2) : { x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 };
-      return zoomViewBox(vb, factor, center);
+      const unitScale = room.unit === "m" ? .3048 : 1;
+      return zoomViewBox(vb, factor, center, 2 * unitScale, Math.max(200 * unitScale, fitViewBox(room.outline).w * 4));
     });
   }
 
   function handleBackgroundPointerDown(e: React.PointerEvent<SVGSVGElement>) {
+    svgRef.current?.focus({ preventScroll: true });
     const isPanTrigger = e.button === 1 || (e.button === 0 && spaceHeld);
     if (isPanTrigger) {
       e.preventDefault();
@@ -136,7 +154,7 @@ export function Canvas2D() {
     const svg = svgRef.current;
     if (!svg) return;
     const rect = svg.getBoundingClientRect();
-    const pxPerUnit = rect.width / pan.startVb.w;
+    const pxPerUnit = 1 / Math.max(pan.startVb.w / rect.width, pan.startVb.h / rect.height);
     const dx = (e.clientX - pan.startClient.x) / pxPerUnit;
     const dy = (e.clientY - pan.startClient.y) / pxPerUnit;
     setViewBox(panViewBox(pan.startVb, -dx, -dy));
@@ -155,17 +173,27 @@ export function Canvas2D() {
     <div className="relative h-full w-full overflow-hidden bg-[var(--bg-inset)]">
       <svg
         ref={svgRef}
+        role="img"
+        aria-label="Floor plan"
+        tabIndex={0}
         viewBox={viewBoxString(viewBox)}
-        className="h-full w-full touch-none select-none"
+        className="h-full w-full touch-none select-none outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--accent)]"
         style={{ cursor: spaceHeld ? "grab" : "default" }}
         onPointerDown={handleBackgroundPointerDown}
         onPointerMove={handleBackgroundPointerMove}
         onPointerUp={handleBackgroundPointerUp}
+        onPointerCancel={() => { panRef.current = null; setDrag(null); setDraftShape(null); }}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget || !selected || e.metaKey || e.ctrlKey || !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
+          e.preventDefault();
+          const step = (snapEnabled ? snapStep : room.unit === "m" ? .01 : 1 / 12) * (e.shiftKey ? 10 : 1);
+          moveItem(selected.id, { x: selected.pos.x + (e.key === "ArrowRight" ? step : e.key === "ArrowLeft" ? -step : 0), y: selected.pos.y + (e.key === "ArrowDown" ? step : e.key === "ArrowUp" ? -step : 0) }, { skipSnap: true });
+        }}
         onContextMenu={(e) => e.preventDefault()}
       >
-        <Grid outline={room.outline} />
-        <RoomOutlineView outline={room.outline} openings={room.openings} unit={room.unit} unitsPerPixel={upp} />
-        <RoomResizeHandles shape={room.shape} svgRef={svgRef} unitsPerPixel={upp} />
+        <Grid outline={outline} />
+        <RoomOutlineView outline={outline} openings={room.openings} unit={room.unit} unitsPerPixel={upp} />
+        <g data-editor-only="true"><RoomResizeHandles shape={draftShape ?? room.shape} svgRef={svgRef} unitsPerPixel={upp} onPreview={setDraftShape} /></g>
 
         {effectiveItems
           .filter((it) => !it.hidden)
@@ -199,14 +227,14 @@ export function Canvas2D() {
           ))}
 
         {selected && !selected.hidden && (
-          <Measurements
+          <g data-editor-only="true"><Measurements
             item={selected}
-            outline={room.outline}
-            otherItems={effectiveItems.filter((it) => it.id !== selected.id)}
+            outline={outline}
+            otherItems={effectiveItems.filter((it) => it.id !== selected.id && !canShareFloorSpace(selected, it, room.unit))}
             mode={room.measureMode}
             unit={room.unit}
             unitsPerPixel={upp}
-          />
+          /></g>
         )}
       </svg>
 

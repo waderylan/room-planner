@@ -31,7 +31,7 @@ export function WallEditorDialog({ wallIndex, openingId, onClose }: WallEditorDi
   const open = Boolean(wall && opening);
 
   if (!wall || !opening) {
-    return <Dialog open={false} onClose={onClose} title="" children={null} />;
+    return null;
   }
 
   const ceiling = room.ceiling;

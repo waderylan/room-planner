@@ -1,27 +1,115 @@
 import type { Doc } from "../model/types";
-import { safeParseDoc } from "../model/migrate";
+import { migrateDoc, safeParseDoc } from "../model/migrate";
 
-const STORAGE_KEY = "room-planner:doc";
+export const LIBRARY_KEY = "room-planner:library:v1";
+export const LEGACY_DOC_KEY = "room-planner:doc";
+export const RECOVERY_KEY = "room-planner:library:recovery";
 
-export function loadPersistedDoc(): Doc | null {
+export interface Project {
+  id: string;
+  name: string;
+  doc: Doc;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectLibrary {
+  version: 1;
+  projects: Project[];
+  activeProjectId: string;
+}
+
+export type SaveStatus = "saved" | "saving" | "error";
+
+export function validateProject(value: unknown): Project {
+  if (!value || typeof value !== "object") throw new Error("Invalid design.");
+  const p = value as Record<string, unknown>;
+  if (typeof p.id !== "string" || !p.id || p.id.length > 200 || typeof p.name !== "string" || !p.name.trim()) {
+    throw new Error("Invalid design name or identifier.");
+  }
+  if (typeof p.createdAt !== "string" || !Number.isFinite(Date.parse(p.createdAt)) ||
+      typeof p.updatedAt !== "string" || !Number.isFinite(Date.parse(p.updatedAt))) {
+    throw new Error("Invalid design dates.");
+  }
+  return { id: p.id, name: p.name.trim().slice(0, 120), doc: migrateDoc(p.doc), createdAt: p.createdAt, updatedAt: p.updatedAt };
+}
+
+export function parseLibrary(raw: string): ProjectLibrary {
+  const parsed = JSON.parse(raw) as Record<string, unknown>;
+  if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.projects) || !parsed.projects.length || parsed.projects.length > 200) {
+    throw new Error("Invalid design library.");
+  }
+  const projects = parsed.projects.map(validateProject);
+  if (new Set(projects.map((p) => p.id)).size !== projects.length) throw new Error("Duplicate design identifiers.");
+  const activeProjectId = typeof parsed.activeProjectId === "string" && projects.some((p) => p.id === parsed.activeProjectId)
+    ? parsed.activeProjectId : projects[0].id;
+  return { version: 1, projects, activeProjectId };
+}
+
+export interface LoadedLibrary {
+  library: ProjectLibrary | null;
+  error: string | null;
+  raw: string | null;
+}
+
+export function loadLibrary(storage: Storage): LoadedLibrary {
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return safeParseDoc(raw);
+    raw = storage.getItem(LIBRARY_KEY);
+    if (raw) return { library: parseLibrary(raw), error: null, raw };
+    const legacy = storage.getItem(LEGACY_DOC_KEY);
+    if (legacy) {
+      const now = new Date().toISOString();
+      const project: Project = { id: crypto.randomUUID(), name: "My first design", doc: safeParseDoc(legacy), createdAt: now, updatedAt: now };
+      return { library: { version: 1, projects: [project], activeProjectId: project.id }, error: null, raw };
+    }
+    return { library: null, error: null, raw };
   } catch {
-    return null;
+    // Retain the unreadable library rather than destroying the user's only copy.
+    try { if (raw) storage.setItem(RECOVERY_KEY, raw); } catch { /* Storage may be unavailable. */ }
+    return { library: null, error: "Saved designs could not be read. Export your current work before closing.", raw };
   }
 }
 
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
+/** An explicit flush is used on project changes, pagehide, and hidden visibility. */
+export function createLibraryPersistence(
+  getStorage: () => Storage,
+  onStatus: (status: SaveStatus, error: string | null) => void,
+  initialRaw: string | null,
+) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pending: ProjectLibrary | null = null;
+  let previousRaw = initialRaw;
 
-export function persistDocDebounced(doc: Doc, delay = 400): void {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
+  function flush(): boolean {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    if (!pending) return true;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(doc));
+      const storage = getStorage();
+      if (storage.getItem(LIBRARY_KEY) !== previousRaw) {
+        onStatus("error", "Designs changed in another tab. Export your current work, then reload.");
+        return false;
+      }
+      const serialized = JSON.stringify(pending);
+      storage.setItem(LIBRARY_KEY, serialized);
+      previousRaw = serialized;
+      pending = null;
+      onStatus("saved", null);
+      return true;
     } catch {
-      // storage full / unavailable: silently skip autosave
+      onStatus("error", "Designs could not be saved on this device. Export a backup before closing.");
+      return false;
     }
-  }, delay);
+  }
+
+  return {
+    schedule(library: ProjectLibrary, delay = 350) {
+      pending = library;
+      if (timer) clearTimeout(timer);
+      onStatus("saving", null);
+      timer = setTimeout(flush, delay);
+    },
+    flush,
+  };
 }

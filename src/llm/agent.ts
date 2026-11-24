@@ -5,6 +5,8 @@ import { executeTool } from "./toolExecutor";
 import { callAnthropic } from "./providers/anthropic";
 import { callOpenAI } from "./providers/openai";
 import { callGemini } from "./providers/gemini";
+import { callLocal } from "./providers/local";
+import { useStore } from "../store/store";
 
 const SYSTEM_PROMPT = `You are a room-planning assistant embedded in a 2D/3D furniture layout app. You inspect and edit the user's active room through tools: reading its shape and contents, resizing it, adding windows/doors, and placing/moving/editing/removing furniture.
 
@@ -20,7 +22,7 @@ const SYSTEM_PROMPT = `You are a room-planning assistant embedded in a 2D/3D fur
 
 ## Workflow for open-ended requests ("design a bedroom", "furnish this")
 1. Call get_room_state to see the shape, unit, and existing items. Call list_presets to see what's available, and describe_walls if you need to know which wall index or cardinal side is which (e.g. before adding a window/door).
-2. If starting a redesign, consider clear_items to empty the room first.
+2. Preserve existing furniture, dimensions, and openings unless the user explicitly asks to replace or remove them. Use clear_items only when the user explicitly asks to remove all furniture or start over.
 3. Place the largest anchor pieces first (bed, sofa, dining table, kitchen island) against walls or in corners, then attach smaller pieces "beside" them (nightstands, coffee table, chairs, rug). Give the room a coherent layout, not a pile in one corner.
 4. Keep realistic clearance: leave walking room (roughly 2-3 ft / 0.6-0.9 m) around beds and between large pieces; don't block doors.
 5. When done placing, call check_room. If it reports any overlaps or out-of-bounds items, fix each with move_item, then you may check again. Aim to finish with zero overlaps.
@@ -46,9 +48,11 @@ export interface RunAgentParams {
   history: Turn[];
   userMessage: string;
   onEvent?: (event: AgentEvent) => void;
+  signal?: AbortSignal;
 }
 
 function callProvider(provider: Provider) {
+  if (provider === "local") return callLocal;
   if (provider === "anthropic") return callAnthropic;
   if (provider === "openai") return callOpenAI;
   return callGemini;
@@ -56,34 +60,55 @@ function callProvider(provider: Provider) {
 
 const MAX_STEPS = 20;
 
-export async function runAgent({ provider, apiKey, model, history, userMessage, onEvent }: RunAgentParams): Promise<Turn[]> {
-  if (!apiKey) throw new LLMError(`No API key configured for ${provider}. Add one in Settings.`);
+export async function runAgent({ provider, apiKey, model, history, userMessage, onEvent, signal }: RunAgentParams): Promise<Turn[]> {
+  if (provider !== "local" && !apiKey) throw new LLMError(`No API key configured for ${provider}. Add one in Settings.`);
+  if (!userMessage.trim() || userMessage.length > 8_000) throw new LLMError("Enter a request of at most 8000 characters.");
   const call = callProvider(provider);
   const turns: Turn[] = [...history, { role: "user", text: userMessage }];
+  const initial = useStore.getState();
+  const projectId = initial.activeProjectId;
+  const roomId = initial.doc.activeRoomId;
+  const historyGroup = crypto.randomUUID();
+  const scope = new AbortController();
+  const activeSignal = signal ? AbortSignal.any([signal, scope.signal]) : scope.signal;
+  const unsubscribe = useStore.subscribe((state) => {
+    if (state.activeProjectId !== projectId || state.doc.activeRoomId !== roomId) scope.abort();
+  });
+  // Kessel accepts at most 16 tools. Intent-based placement replaces raw-coordinate creation.
+  const tools = provider === "local" ? TOOLS.filter((tool) => tool.name !== "add_item") : TOOLS;
+  try {
+    for (let step = 0; step < MAX_STEPS; step++) {
+      activeSignal.throwIfAborted();
+      const response = await call({ apiKey, model, system: SYSTEM_PROMPT, turns, tools, signal: activeSignal });
+      // Re-check after every await. A late response must never edit another design.
+      activeSignal.throwIfAborted();
+      if (response.toolCalls.length > 20) throw new LLMError("The assistant requested too many changes at once. Try a smaller request.");
 
-  for (let step = 0; step < MAX_STEPS; step++) {
-    const response = await call({ apiKey, model, system: SYSTEM_PROMPT, turns, tools: TOOLS });
+      if (response.text) onEvent?.({ type: "text", text: response.text });
+      turns.push({ role: "assistant", text: response.text, toolCalls: response.toolCalls });
 
-    if (response.text) onEvent?.({ type: "text", text: response.text });
-    turns.push({ role: "assistant", text: response.text, toolCalls: response.toolCalls });
+      if (response.toolCalls.length === 0) return turns;
 
-    if (response.toolCalls.length === 0) return turns;
+      const results = initial.withHistoryGroup(historyGroup, () => response.toolCalls.map((tc) => {
+        activeSignal.throwIfAborted();
+        onEvent?.({ type: "tool_call", name: tc.name, input: tc.input });
+        activeSignal.throwIfAborted();
+        try {
+          const output = executeTool(tc.name, tc.input);
+          onEvent?.({ type: "tool_result", name: tc.name, output });
+          return { id: tc.id, name: tc.name, output };
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          onEvent?.({ type: "tool_result", name: tc.name, output: message, isError: true });
+          return { id: tc.id, name: tc.name, output: message, isError: true };
+        }
+      }));
+      turns.push({ role: "tool", results });
+    }
 
-    const results = response.toolCalls.map((tc) => {
-      onEvent?.({ type: "tool_call", name: tc.name, input: tc.input });
-      try {
-        const output = executeTool(tc.name, tc.input);
-        onEvent?.({ type: "tool_result", name: tc.name, output });
-        return { id: tc.id, name: tc.name, output };
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        onEvent?.({ type: "tool_result", name: tc.name, output: message, isError: true });
-        return { id: tc.id, name: tc.name, output: message, isError: true };
-      }
-    });
-    turns.push({ role: "tool", results });
-  }
-
-  turns.push({ role: "assistant", text: "(Stopped after making a lot of changes in one go. Ask me to continue if there's more to do.)", toolCalls: [] });
-  return turns;
+    const limitMessage = "Stopped after 20 steps. Send another request to continue.";
+    onEvent?.({ type: "text", text: limitMessage });
+    turns.push({ role: "assistant", text: limitMessage, toolCalls: [] });
+    return turns;
+  } finally { unsubscribe(); }
 }

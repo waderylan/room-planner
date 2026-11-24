@@ -1,15 +1,14 @@
 # src/components/Sidebar/
 
-The left sidebar: a vertical stack of panels for editing the room and its contents. All panels
-read and write the Zustand store directly.
+Contextual Furniture, Room, and Selection tabs. Selecting furniture opens its inspector.
+Panels read and write the Zustand store through actions.
 
 ## Files
 
-- `Sidebar.tsx` — container that stacks the panels below in order.
+- `Sidebar.tsx` — keyboard-accessible tabs and scrollable panels; mobile drawer close control.
 - `RoomPanel.tsx` — room shape (rect/L-shape via `LShapeEditor`), width/length, unit, ceiling
   height, alcoves/bump-outs, and openings (opens `WallEditorDialog`).
-- `AddFurniturePanel.tsx` — one-click furniture preset catalog (plus "Custom"); drops a piece
-  into the first free spot and selects it.
+- `AddFurniturePanel.tsx` — searchable categorized catalog with footprint previews and dimensions.
 - `Inspector.tsx` — editor for the selected item: name, footprint shape (rect/circle/L-shape),
   dimensions, height, elevation, rotation, and color, all live.
 - `StatsPanel.tsx` — live room area, used area, and free area (turns red when overfilled), plus

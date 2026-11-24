@@ -14,7 +14,7 @@ interface RoomOutlineViewProps {
 export function RoomOutlineView({ outline, openings, unit, unitsPerPixel }: RoomOutlineViewProps) {
   const points = outline.map((p) => `${p.x},${p.y}`).join(" ");
   const center = centroid(outline);
-  const fontSize = 22 * unitsPerPixel;
+  const fontSize = 12 * unitsPerPixel;
   const tickInner = 2.5 * unitsPerPixel;
   const tickLen = 16 * unitsPerPixel;
   const labelGap = 10 * unitsPerPixel;
@@ -82,10 +82,10 @@ export function RoomOutlineView({ outline, openings, unit, unitsPerPixel }: Room
               strokeWidth={fontSize * 0.28}
               paintOrder="stroke"
             >
-              <tspan x={labelPos.x} dy={leanSign * -fontSize * 0.35} fontSize={fontSize} fontWeight={700} fill="var(--accent)">
+              <tspan x={labelPos.x} dy={leanSign * -fontSize * 0.35} fontSize={fontSize * .8} fontWeight={500} fill="var(--text-muted)">
                 Wall {i + 1}
               </tspan>
-              <tspan x={labelPos.x} dy={fontSize * 1.1} fontSize={fontSize * 0.92} fontWeight={500} className="tabular-nums" fill="var(--text-muted)">
+              <tspan x={labelPos.x} dy={fontSize * 1.2} fontSize={fontSize} fontWeight={600} className="tabular-nums" fill="var(--text)">
                 {formatLength(length, unit)}
               </tspan>
             </text>

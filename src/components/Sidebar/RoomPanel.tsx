@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { v4 as uuid } from "uuid";
 import { useStore } from "../../store/store";
 import type { AlcoveWall, OpeningKind, RoomShape } from "../../model/types";
@@ -16,6 +16,7 @@ const WALL_LABELS: Record<AlcoveWall, string> = { n: "North", e: "East", s: "Sou
 export function RoomPanel() {
   const room = useStore((s) => s.activeRoom());
   const setRoomUnit = useStore((s) => s.setRoomUnit);
+  const renameRoom = useStore((s) => s.renameRoom);
   const setRoomShape = useStore((s) => s.setRoomShape);
   const setRoomCeiling = useStore((s) => s.setRoomCeiling);
   const addAlcove = useStore((s) => s.addAlcove);
@@ -27,6 +28,16 @@ export function RoomPanel() {
   const [alcoveDepth, setAlcoveDepth] = useState(2);
   const [alcoveOffset, setAlcoveOffset] = useState(1);
   const [editor, setEditor] = useState<{ wallIndex: number; openingId: string } | null>(null);
+  const previousUnit = useRef(room.unit);
+
+  useEffect(() => {
+    if (previousUnit.current === room.unit) return;
+    const factor = room.unit === "m" ? 0.3048 : 1 / 0.3048;
+    setAlcoveWidth((value) => value * factor);
+    setAlcoveDepth((value) => value * factor);
+    setAlcoveOffset((value) => value * factor);
+    previousUnit.current = room.unit;
+  }, [room.unit]);
 
   const shape = room.shape;
   const walls = wallSegments(room.outline);
@@ -34,7 +45,8 @@ export function RoomPanel() {
   function addOpeningToWall(wallIndex: number, kind: OpeningKind) {
     const wall = walls[wallIndex];
     if (!wall) return;
-    const width = Math.min(kind === "door" ? 3 : 3, Math.max(0.5, wall.length - 0.1));
+    const scale = room.unit === "m" ? 0.3048 : 1;
+    const width = Math.min(3 * scale, Math.max(0.1 * scale, wall.length - 0.1 * scale));
     const offset = Math.max(0, (wall.length - width) / 2);
     const id = uuid();
     addOpening({
@@ -43,8 +55,8 @@ export function RoomPanel() {
       wallIndex,
       offset,
       width,
-      height: kind === "door" ? 6.67 : 3.5,
-      sillHeight: kind === "door" ? 0 : 3,
+      height: (kind === "door" ? 6.67 : 3.5) * scale,
+      sillHeight: (kind === "door" ? 0 : 3) * scale,
       hinge: "left",
     });
     setEditor({ wallIndex, openingId: id });
@@ -67,7 +79,10 @@ export function RoomPanel() {
 
   return (
     <section data-tour="room" className="flex flex-col gap-3 border-b border-[var(--border)] px-3.5 py-4">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-faint)]">Room</h2>
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs text-[var(--text-muted)]">Room name</span>
+        <input key={`${room.id}:${room.name}`} aria-label="Room name" defaultValue={room.name} onBlur={(e) => { renameRoom(room.id, e.target.value); e.target.value = useStore.getState().activeRoom().name; }} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} maxLength={80} className="h-9 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 text-xs text-[var(--text)] outline-none focus-visible:border-[var(--accent)]" />
+      </label>
 
       <div className="flex items-center justify-between">
         <span className="text-xs text-[var(--text-muted)]">Units</span>
@@ -143,7 +158,7 @@ export function RoomPanel() {
 
       <details className="rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg-inset)] p-2.5 open:pb-3">
         <summary className="cursor-pointer text-xs font-medium text-[var(--text)] select-none">
-          Alcoves / bump-outs {room.alcoves.length > 0 && `(${room.alcoves.length})`}
+          Alcoves {room.alcoves.length > 0 && `(${room.alcoves.length})`}
         </summary>
         <div className="mt-2.5 flex flex-col gap-2">
           {room.alcoves.map((a) => (
@@ -179,7 +194,7 @@ export function RoomPanel() {
               onChange={setAlcoveWall}
             />
           </div>
-          <div className="grid grid-cols-3 gap-1.5">
+          <div className="grid grid-cols-2 gap-2">
             <LengthField label="Width" value={alcoveWidth} onChange={setAlcoveWidth} unit={room.unit} min={0.5} />
             <LengthField label="Depth" value={alcoveDepth} onChange={setAlcoveDepth} unit={room.unit} min={0.5} />
             <LengthField label="Offset" value={alcoveOffset} onChange={setAlcoveOffset} unit={room.unit} min={0} />

@@ -1,5 +1,6 @@
 import type { JSONSchema, ProviderCallParams, ProviderResponse, Turn } from "../types";
 import { LLMError } from "../types";
+import { providerRequest, toolInput } from "./request";
 
 // Gemini's raw REST Schema object (used for FunctionDeclaration.parameters)
 // encodes its "type" field as the uppercase proto enum name (STRING, OBJECT,
@@ -17,6 +18,7 @@ function toGeminiSchema(schema: JSONSchema): unknown {
 }
 
 interface GeminiPart {
+  thoughtSignature?: string;
   text?: string;
   functionCall?: { name: string; args: Record<string, unknown> };
   functionResponse?: { name: string; response: unknown };
@@ -30,11 +32,11 @@ function toContents(turns: Turn[]) {
     if (turn.role === "assistant") {
       const parts: GeminiPart[] = [];
       if (turn.text) parts.push({ text: turn.text });
-      for (const tc of turn.toolCalls) parts.push({ functionCall: { name: tc.name, args: tc.input } });
+      for (const tc of turn.toolCalls) parts.push({ functionCall: { name: tc.name, args: tc.input }, ...(tc.thoughtSignature ? { thoughtSignature: tc.thoughtSignature } : {}) });
       return { role: "model", parts };
     }
     return {
-      role: "function",
+      role: "user",
       parts: turn.results.map((r) => ({
         functionResponse: { name: r.name, response: { name: r.name, content: r.output } },
       })),
@@ -42,34 +44,26 @@ function toContents(turns: Turn[]) {
   });
 }
 
-export async function callGemini({ apiKey, model, system, turns, tools }: ProviderCallParams): Promise<ProviderResponse> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const res = await fetch(url, {
+export async function callGemini({ apiKey, model, system, turns, tools, signal }: ProviderCallParams): Promise<ProviderResponse> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  const data = await providerRequest<{ candidates?: { content?: { parts?: GeminiPart[] } }[] }>("Gemini", url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
       contents: toContents(turns),
       tools: [{ functionDeclarations: tools.map((t) => ({ name: t.name, description: t.description, parameters: toGeminiSchema(t.parameters) })) }],
     }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new LLMError(`Gemini API error (${res.status}): ${body.slice(0, 500)}`);
-  }
-
-  const data = (await res.json()) as {
-    candidates?: { content?: { parts?: GeminiPart[] } }[];
-  };
+  }, signal);
   const parts = data.candidates?.[0]?.content?.parts ?? [];
+  if (!parts.length) throw new LLMError("Gemini returned no response. Try a different request.");
   let text = "";
   const toolCalls: ProviderResponse["toolCalls"] = [];
   let i = 0;
   for (const part of parts) {
     if (part.text) text += part.text;
     if (part.functionCall) {
-      toolCalls.push({ id: `${part.functionCall.name}_${i++}`, name: part.functionCall.name, input: part.functionCall.args ?? {} });
+      toolCalls.push({ id: `${part.functionCall.name}_${i++}`, name: part.functionCall.name, input: toolInput(part.functionCall.args ?? {}), thoughtSignature: part.thoughtSignature });
     }
   }
   return { text, toolCalls };

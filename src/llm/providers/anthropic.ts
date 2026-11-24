@@ -1,5 +1,6 @@
 import type { ProviderCallParams, ProviderResponse, Turn } from "../types";
 import { LLMError } from "../types";
+import { providerRequest, toolInput } from "./request";
 
 interface AnthropicBlock {
   type: string;
@@ -35,8 +36,8 @@ function toMessages(turns: Turn[]) {
   });
 }
 
-export async function callAnthropic({ apiKey, model, system, turns, tools }: ProviderCallParams): Promise<ProviderResponse> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+export async function callAnthropic({ apiKey, model, system, turns, tools, signal }: ProviderCallParams): Promise<ProviderResponse> {
+  const data = await providerRequest<{ content: AnthropicBlock[] }>("Anthropic", "https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -51,20 +52,14 @@ export async function callAnthropic({ apiKey, model, system, turns, tools }: Pro
       messages: toMessages(turns),
       tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters })),
     }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new LLMError(`Anthropic API error (${res.status}): ${body.slice(0, 500)}`);
-  }
-
-  const data = (await res.json()) as { content: AnthropicBlock[] };
+  }, signal);
+  if (!Array.isArray(data.content) || data.content.length === 0) throw new LLMError("Anthropic returned no response. Try again.");
   let text = "";
   const toolCalls: ProviderResponse["toolCalls"] = [];
   for (const block of data.content ?? []) {
     if (block.type === "text" && block.text) text += block.text;
     if (block.type === "tool_use" && block.id && block.name) {
-      toolCalls.push({ id: block.id, name: block.name, input: block.input ?? {} });
+      toolCalls.push({ id: block.id, name: block.name, input: toolInput(block.input ?? {}) });
     }
   }
   return { text, toolCalls };

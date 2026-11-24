@@ -14,7 +14,7 @@ interface LengthFieldProps {
 }
 
 const inputClass =
-  "tabular-nums w-11 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2 h-8 text-sm text-[var(--text)] outline-none transition-colors duration-150 hover:border-[var(--border-strong)] focus-visible:border-[var(--accent)] focus-visible:shadow-[var(--focus-ring)] disabled:opacity-40";
+  "tabular-nums min-w-0 w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2 h-9 text-xs text-[var(--text)] outline-none transition-colors duration-150 hover:border-[var(--border-strong)] focus-visible:border-[var(--accent)] focus-visible:shadow-[var(--focus-ring)] disabled:opacity-40";
 
 /** Dimension input shown as whole feet + whole inches (0-11) for the "ft" unit; falls back to a plain decimal field otherwise. */
 export function LengthField({ label, value, onChange, unit, min, max, disabled, className = "" }: LengthFieldProps) {
@@ -59,9 +59,10 @@ export function LengthField({ label, value, onChange, unit, min, max, disabled, 
   return (
     <div className={`flex flex-col gap-1 ${className}`}>
       {label && <span className="text-xs text-[var(--text-muted)]">{label}</span>}
-      <div className="flex items-center gap-1.5">
-        <div className="flex items-center">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <div className="flex min-w-0 flex-1 items-center">
           <input
+            aria-label={`${label ?? "Length"} feet`}
             type="text"
             inputMode="numeric"
             value={feetText}
@@ -75,8 +76,9 @@ export function LengthField({ label, value, onChange, unit, min, max, disabled, 
           />
           <span className="ml-1 text-xs text-[var(--text-faint)]">ft</span>
         </div>
-        <div className="flex items-center">
+        <div className="flex min-w-0 flex-1 items-center">
           <input
+            aria-label={`${label ?? "Length"} inches`}
             type="text"
             inputMode="numeric"
             value={inchText}

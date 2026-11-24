@@ -23,6 +23,5 @@ Coordinate convention: X increases east (right), Y increases south (down / into 
   wall segments split around openings, and reclamping openings when the outline changes.
 - `clearance.ts` — nearest-distance measurements from an item to walls and to other furniture,
   used by the measurement overlay and stats.
-- `selfTest.ts` — lightweight runtime assertions for the tricky cases (overlap/touch/disjoint/
-  nested/L-shape); run once in dev from `main.tsx`.
+- `selfTest.ts` — legacy diagnostic checks. Deterministic regression tests live in `tests/core/geometry.test.ts`.
 - `index.ts` — re-exports the modules above as the `geometry` barrel.

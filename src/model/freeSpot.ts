@@ -1,11 +1,11 @@
 import type { Item, Room } from "./types";
-import { worldPolygon, isFullyInside } from "../geometry/shape";
-import { polygonsIntersect } from "../geometry/polygon";
+import { worldPolygon, isFullyInside, localPolygon } from "../geometry/shape";
+import { centroid } from "../geometry/polygon";
 import type { Vec2 } from "../geometry/types";
+import { canShareFloorSpace, footprintInteriorsOverlap } from "./collision";
+import { unitScale } from "./units";
 
-const STEP = 0.5;
-
-/** Finds the first free grid spot in the room where the item fits without overlap or going out of bounds. */
+/** Bounded, unit-aware placement search; rugs and elevated pieces can share floor space. */
 export function findFreeSpot(room: Room, item: Item): Vec2 {
   const xs = room.outline.map((p) => p.x);
   const ys = room.outline.map((p) => p.y);
@@ -13,18 +13,18 @@ export function findFreeSpot(room: Room, item: Item): Vec2 {
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
+  // At most 81 × 81 candidates, even for a very large imported room.
+  const step = Math.max(0.5 * unitScale("ft", room.unit), (maxX - minX) / 80, (maxY - minY) / 80);
+  const otherPolys = room.items.filter((other) => other.id !== item.id && !canShareFloorSpace(item, other, room.unit)).map(worldPolygon);
 
-  const otherPolys = room.items.filter((o) => o.id !== item.id).map((o) => worldPolygon(o));
-
-  for (let y = minY; y <= maxY; y += STEP) {
-    for (let x = minX; x <= maxX; x += STEP) {
-      const candidate: Item = { ...item, pos: { x, y } };
-      const poly = worldPolygon(candidate);
+  for (let y = minY; y <= maxY + 1e-9; y += step) {
+    for (let x = minX; x <= maxX + 1e-9; x += step) {
+      const poly = worldPolygon({ ...item, pos: { x, y } });
       if (!isFullyInside(poly, room.outline)) continue;
-      const overlaps = otherPolys.some((other) => polygonsIntersect(poly, other));
-      if (!overlaps) return { x, y };
+      if (!otherPolys.some((other) => footprintInteriorsOverlap(poly, other))) return { x, y };
     }
   }
-  // fall back to room center even if it overlaps; user can move it
-  return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+  const center = centroid(room.outline);
+  const itemCenter = centroid(localPolygon(item.footprint));
+  return { x: center.x - itemCenter.x, y: center.y - itemCenter.y };
 }

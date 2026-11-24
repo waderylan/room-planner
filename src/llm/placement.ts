@@ -1,7 +1,9 @@
-import type { Footprint, Item, Room } from "../model/types";
+import type { Footprint, Item, Room, Unit } from "../model/types";
 import type { Vec2 } from "../geometry/types";
 import { worldPolygon, isFullyInside, worldCenter } from "../geometry/shape";
-import { polygonsIntersect, centroid, polygonArea, snap } from "../geometry/polygon";
+import { polygonArea, snap } from "../geometry/polygon";
+import { canShareFloorSpace, footprintInteriorsOverlap, isFloorCovering, itemsCollide } from "../model/collision";
+import { unitScale } from "../model/units";
 
 /**
  * Placement engine for the LLM tool layer.
@@ -14,17 +16,14 @@ import { polygonsIntersect, centroid, polygonArea, snap } from "../geometry/poly
  * footprint centroid); this module does that math so the model doesn't have to.
  */
 
-const STEP = 0.25;
-// Shrink polygons by this fraction about their centroid before testing overlap,
-// so pieces that merely *touch* (flush neighbours, item flush to a wall) are not
-// reported as overlapping — only real interpenetration counts.
-const SHRINK = 0.02;
-// Items at or below this height (rugs, mats) are floor coverings meant to sit
-// UNDER furniture, so they never block placement and never count as overlaps.
-const FLAT_HEIGHT = 0.15;
+// Share the editor's physical floor-covering threshold in both measurement units.
+export function isFlat(item: Pick<Item, "height" | "elevation">, unit: Unit = "ft"): boolean {
+  return isFloorCovering(item, unit);
+}
 
-export function isFlat(item: Pick<Item, "height">): boolean {
-  return item.height <= FLAT_HEIGHT;
+function searchStep(room: Room): number {
+  const bounds = roomBounds(room);
+  return Math.max(0.25 * unitScale("ft", room.unit), (bounds.maxX - bounds.minX) / 140, (bounds.maxY - bounds.minY) / 140);
 }
 
 export type WallSide = "n" | "e" | "s" | "w";
@@ -79,14 +78,9 @@ function posForWorldMin(off: Bounds, worldMinX: number, worldMinY: number): Vec2
   return { x: worldMinX - off.minX, y: worldMinY - off.minY };
 }
 
-function shrinkPoly(poly: Vec2[], k = SHRINK): Vec2[] {
-  const c = centroid(poly);
-  return poly.map((p) => ({ x: c.x + (p.x - c.x) * (1 - k), y: c.y + (p.y - c.y) * (1 - k) }));
-}
-
 /** True only if the interiors of two footprints actually overlap (touching is allowed). */
 export function interiorsOverlap(a: Vec2[], b: Vec2[]): boolean {
-  return polygonsIntersect(shrinkPoly(a), shrinkPoly(b));
+  return footprintInteriorsOverlap(a, b);
 }
 
 function isValid(
@@ -100,8 +94,10 @@ function isValid(
   const poly = worldPolygon({ footprint, pos, rotDeg });
   if (!isFullyInside(poly, room.outline)) return false;
   if (flat) return true; // floor coverings only need to be in bounds
+  const self = room.items.find((item) => item.id === excludeId);
   for (const it of room.items) {
-    if (it.id === excludeId || it.hidden || isFlat(it)) continue;
+    if (it.id === excludeId || it.hidden || isFlat(it, room.unit)) continue;
+    if (self && canShareFloorSpace(self, it, room.unit)) continue;
     if (interiorsOverlap(poly, worldPolygon(it))) return false;
   }
   return true;
@@ -118,11 +114,12 @@ function slideResolve(
   flat: boolean,
 ): Vec2 | null {
   const b = roomBounds(room);
+  const step = searchStep(room);
   const span = axis === "x" ? b.maxX - b.minX : b.maxY - b.minY;
-  const steps = Math.ceil(span / STEP) + 2;
+  const steps = Math.ceil(span / step) + 2;
   for (let k = 0; k <= steps; k++) {
     for (const dir of k === 0 ? [0] : [1, -1]) {
-      const off = dir * k * STEP;
+      const off = dir * k * step;
       const pos = axis === "x" ? { x: desired.x + off, y: desired.y } : { x: desired.x, y: desired.y + off };
       if (isValid(room, footprint, rotDeg, pos, excludeId, flat)) return pos;
     }
@@ -140,9 +137,10 @@ function nearestResolve(
   flat: boolean,
 ): Vec2 | null {
   const b = roomBounds(room);
+  const step = searchStep(room);
   const cands: { pos: Vec2; d: number }[] = [];
-  for (let y = b.minY; y <= b.maxY; y += STEP) {
-    for (let x = b.minX; x <= b.maxX; x += STEP) {
+  for (let y = b.minY; y <= b.maxY; y += step) {
+    for (let x = b.minX; x <= b.maxX; x += step) {
       cands.push({ pos: { x, y }, d: (x - desired.x) ** 2 + (y - desired.y) ** 2 });
     }
   }
@@ -162,7 +160,10 @@ function resolve(
   excludeId: string | undefined,
   flat: boolean,
 ): PlacementResult {
-  const d = { x: snap(desired.x, STEP), y: snap(desired.y, STEP) };
+  // Try the exact target first so metric conversion and flush wall placement stay precise.
+  if (isValid(room, footprint, rotDeg, desired, excludeId, flat)) return { pos: desired, rotDeg, adjusted: false, placed: true };
+  const step = searchStep(room);
+  const d = { x: snap(desired.x, step), y: snap(desired.y, step) };
   if (isValid(room, footprint, rotDeg, d, excludeId, flat)) return { pos: d, rotDeg, adjusted: false, placed: true };
   if (slideAxis) {
     const s = slideResolve(room, footprint, rotDeg, d, slideAxis, excludeId, flat);
@@ -301,8 +302,8 @@ export function roomIssues(room: Room): RoomIssues {
   for (let i = 0; i < polys.length; i++) {
     for (let j = i + 1; j < polys.length; j++) {
       // Flat floor coverings (rugs) are meant to sit under furniture.
-      if (isFlat(polys[i].it) || isFlat(polys[j].it)) continue;
-      if (interiorsOverlap(polys[i].poly, polys[j].poly)) {
+      if (isFlat(polys[i].it, room.unit) || isFlat(polys[j].it, room.unit)) continue;
+      if (itemsCollide(polys[i].it, polys[j].it, room.unit)) {
         overlaps.push({
           a: { id: polys[i].it.id, name: polys[i].it.name },
           b: { id: polys[j].it.id, name: polys[j].it.name },
@@ -311,7 +312,7 @@ export function roomIssues(room: Room): RoomIssues {
     }
   }
   const roomArea = polygonArea(room.outline);
-  const usedArea = polys.reduce((sum, { poly }) => sum + polygonArea(poly), 0);
+  const usedArea = polys.filter(({ it }) => !isFlat(it, room.unit)).reduce((sum, { poly }) => sum + polygonArea(poly), 0);
   return {
     overlaps,
     outOfBounds,

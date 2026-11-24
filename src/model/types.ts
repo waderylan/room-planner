@@ -10,6 +10,8 @@ export type Footprint =
 export interface Item {
   id: string;
   name: string;
+  /** Optional visual identity; dimensions and footprint remain the source of truth. */
+  presetId?: string;
   footprint: Footprint;
   pos: Vec2;
   rotDeg: number;

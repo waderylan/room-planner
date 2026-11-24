@@ -1,11 +1,13 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { v4 as uuid } from "uuid";
-import { PaperPlaneRight, Sparkle, Trash, Wrench, X } from "@phosphor-icons/react";
+import { PaperPlaneRight, Sparkle, Square, Trash, Wrench, X } from "@phosphor-icons/react";
 import type { Turn } from "../../llm/types";
 import { runAgent } from "../../llm/agent";
 import { DEFAULT_MODELS, useSettingsStore } from "../../store/settingsStore";
 import { IconButton } from "../ui/IconButton";
 import { Button } from "../ui/Button";
+import { useStore } from "../../store/store";
+import { getLocalStatus, preferredLocalModel } from "../../llm/providers/local";
 
 interface ChatEntry {
   id: string;
@@ -58,6 +60,14 @@ interface ChatPanelProps {
 }
 
 export function ChatPanel({ onClose, onOpenSettings }: ChatPanelProps) {
+  const projectId = useStore((s) => s.activeProjectId);
+  const roomId = useStore((s) => s.doc.activeRoomId);
+  const provider = useSettingsStore((s) => s.provider);
+  const model = useSettingsStore((s) => s.models[provider]);
+  return <ChatSession key={`${projectId}:${roomId}:${provider}:${model}`} onClose={onClose} onOpenSettings={onOpenSettings} />;
+}
+
+function ChatSession({ onClose, onOpenSettings }: ChatPanelProps) {
   const provider = useSettingsStore((s) => s.provider);
   const model = useSettingsStore((s) => s.models[provider]);
   const apiKey = useSettingsStore((s) => s.apiKeys[provider]);
@@ -67,6 +77,8 @@ export function ChatPanel({ onClose, onOpenSettings }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const requestRef = useRef<AbortController | null>(null);
+  useEffect(() => () => requestRef.current?.abort(), []);
 
   function clearChat() {
     if (loading) return;
@@ -82,26 +94,44 @@ export function ChatPanel({ onClose, onOpenSettings }: ChatPanelProps) {
     });
   }
 
-  async function send() {
-    const text = input.trim();
-    if (!text || loading) return;
+  function stop() {
+    requestRef.current?.abort();
+    requestRef.current = null;
+    setLoading(false);
+    setTurns([]);
+    pushEntry("activity", "Stopped");
+  }
+
+  async function send(message = input) {
+    const text = message.trim();
+    if (!text || requestRef.current) return;
     setInput("");
     pushEntry("user", text);
 
-    if (!apiKey) {
+    if (provider !== "local" && !apiKey) {
       pushEntry("error", `No API key set for ${provider}. Open Settings to add one.`);
       return;
     }
 
     setLoading(true);
+    const controller = new AbortController();
+    requestRef.current = controller;
     try {
+      let selectedModel = model || DEFAULT_MODELS[provider];
+      if (provider === "local") {
+        const status = await getLocalStatus(controller.signal);
+        if (!status.available) throw new Error(status.reason || "Local Codex is unavailable.");
+        if (!status.models.includes(selectedModel)) selectedModel = preferredLocalModel(status.models);
+      }
       const nextTurns = await runAgent({
         provider,
         apiKey,
-        model: model || DEFAULT_MODELS[provider],
+        model: selectedModel,
         history: turns,
         userMessage: text,
+        signal: controller.signal,
         onEvent: (event) => {
+          if (controller.signal.aborted || requestRef.current !== controller) return;
           if (event.type === "tool_call" && event.name) {
             pushEntry("activity", describeToolCall(event.name, (event.input as Record<string, unknown>) ?? {}));
           } else if (event.type === "tool_result" && event.isError) {
@@ -111,11 +141,11 @@ export function ChatPanel({ onClose, onOpenSettings }: ChatPanelProps) {
           }
         },
       });
-      setTurns(nextTurns);
+      if (!controller.signal.aborted && requestRef.current === controller) setTurns(nextTurns);
     } catch (e) {
-      pushEntry("error", e instanceof Error ? e.message : "Something went wrong talking to the model.");
+      if (!controller.signal.aborted && requestRef.current === controller) pushEntry("error", e instanceof Error ? e.message : "The assistant could not complete the request.");
     } finally {
-      setLoading(false);
+      if (requestRef.current === controller) { requestRef.current = null; setLoading(false); }
     }
   }
 
@@ -132,15 +162,14 @@ export function ChatPanel({ onClose, onOpenSettings }: ChatPanelProps) {
             disabled={loading || entries.length === 0}
           />
           <IconButton aria-label="Assistant settings" icon={<Wrench size={15} />} onClick={onOpenSettings} />
-          <IconButton aria-label="Close assistant" icon={<X size={16} />} onClick={onClose} />
+          <IconButton aria-label="Close assistant" icon={<X size={16} />} onClick={() => { requestRef.current?.abort(); onClose(); }} />
         </div>
       </div>
 
-      <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto scrollbar-thin px-3.5 py-3">
+      <div ref={listRef} role="log" aria-label="Assistant conversation" aria-live="polite" className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto scrollbar-thin px-3.5 py-3">
         {entries.length === 0 && (
-          <div className="mt-4 rounded-[var(--radius-card)] border border-dashed border-[var(--border)] p-4 text-center text-xs text-[var(--text-faint)]">
-            Describe a room in plain language, e.g. "Make this a 14x11 bedroom with a queen bed against the north
-            wall and a desk in the corner."
+          <div className="mt-auto flex flex-col items-start gap-2 pb-3">
+            {["Furnish this room", "Add a desk", "Check the layout"].map((prompt) => <Button key={prompt} size="sm" onClick={() => void send(prompt)}>{prompt}</Button>)}
           </div>
         )}
         {entries.map((entry) => (
@@ -159,13 +188,13 @@ export function ChatPanel({ onClose, onOpenSettings }: ChatPanelProps) {
               send();
             }
           }}
-          placeholder="Ask the assistant to place furniture..."
+          placeholder="Plan your room…"
+          aria-label="Message the assistant"
+          maxLength={8000}
           rows={2}
           className="min-h-[2.25rem] flex-1 resize-none rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--bg-inset)] px-2.5 py-2 text-sm text-[var(--text)] outline-none transition-colors duration-150 hover:border-[var(--border-strong)] focus-visible:border-[var(--accent)] focus-visible:shadow-[var(--focus-ring)]"
         />
-        <Button size="md" variant="primary" icon={<PaperPlaneRight size={14} />} onClick={send} disabled={loading || !input.trim()}>
-          Send
-        </Button>
+        {loading ? <Button size="md" icon={<Square size={14} />} onClick={stop}>Stop</Button> : <Button size="md" variant="primary" icon={<PaperPlaneRight size={14} />} onClick={() => void send()} disabled={!input.trim()}>Send</Button>}
       </div>
     </aside>
   );

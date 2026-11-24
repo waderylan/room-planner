@@ -18,7 +18,7 @@ export function ToastStack() {
   const dismissToast = useStore((s) => s.dismissToast);
 
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+    <div aria-live="polite" aria-atomic="false" className="pointer-events-none fixed bottom-14 right-4 left-4 z-50 flex flex-col items-end gap-2 sm:left-auto sm:max-w-md">
       {toasts.map((t) => {
         const Icon = ICONS[t.variant];
         return (

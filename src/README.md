@@ -5,11 +5,9 @@ concern into subdirectories, each with its own README.
 
 ## Files
 
-- `main.tsx` — React entry point. Mounts `<App>` into `#root`, imports global CSS, and runs
-  the geometry self-test once in dev builds.
+- `main.tsx` — React entry point, theme, and hash navigation between the library and lazy editor.
 - `App.tsx` — top-level layout. Composes the toolbar, sidebar, 2D/3D canvas (switched by view
-  mode), room tabs, chat panel, settings dialog, and toast stack; owns app-wide keyboard
-  shortcuts and theme application.
+  mode), room tabs, chat panel, and settings dialog; owns editor keyboard shortcuts.
 - `index.css` — Tailwind v4 import plus the design tokens (`@theme`) and light/dark CSS
   variables used throughout the app.
 

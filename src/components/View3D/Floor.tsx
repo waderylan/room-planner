@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import type { Vec2 } from "../../geometry/types";
 
@@ -18,10 +18,11 @@ export function Floor({ outline }: FloorProps) {
     geo.rotateX(-Math.PI / 2);
     return geo;
   }, [outline]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
 
   return (
     <mesh geometry={geometry} receiveShadow>
-      <meshStandardMaterial color="#c9cdd3" side={THREE.DoubleSide} />
+      <meshStandardMaterial color="#dfe2e6" roughness={.95} side={THREE.DoubleSide} />
     </mesh>
   );
 }

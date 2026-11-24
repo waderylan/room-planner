@@ -20,7 +20,7 @@ export function fitViewBox(outline: Vec2[], padding?: number): ViewBox {
   const rawMaxY = Math.max(...ys);
   // leave room for the wall/dimension labels that sit just outside the outline;
   // they scale with room size (see RoomOutlineView), so the margin must too
-  const p = padding ?? Math.max(2.5, Math.max(rawMaxX - rawMinX, rawMaxY - rawMinY) * 0.16);
+  const p = padding ?? Math.max(0.1, Math.max(rawMaxX - rawMinX, rawMaxY - rawMinY) * 0.22);
   const minX = rawMinX - p;
   const minY = rawMinY - p;
   const maxX = rawMaxX + p;

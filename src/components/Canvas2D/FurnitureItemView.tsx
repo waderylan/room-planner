@@ -15,8 +15,7 @@ import {
 } from "../../geometry/lshape";
 import { INCH_FT, formatLengthCompact } from "../../format/length";
 import { screenToSvgPoint } from "./svgPoint";
-
-const MIN_SIZE = 0.25; // 3 inches
+import { presetIdOf } from "../../model/presets";
 
 type ResizeEdge = "n" | "s" | "e" | "w" | "r" | "width" | "depth" | "notch";
 
@@ -61,8 +60,10 @@ function computeResize(
   localDx: number,
   localDy: number,
   skipSnap: boolean,
+  unit: string,
 ): { footprint: Footprint; pos: Vec2 } {
-  const snapVal = (v: number) => (skipSnap ? v : snap(v, INCH_FT));
+  const MIN_SIZE = unit === "m" ? .0762 : .25;
+  const snapVal = (v: number) => (skipSnap ? v : snap(v, unit === "m" ? .01 : INCH_FT));
 
   if (footprint.kind === "rect") {
     const { w, d } = footprint;
@@ -161,6 +162,7 @@ export function FurnitureItemView({
   onCommitResize,
 }: FurnitureItemViewProps) {
   const resizeSensitivity = useStore((s) => s.resizeSensitivity);
+  const presetId = presetIdOf(item);
   const local = useMemo(() => localPolygon(item.footprint), [item.footprint]);
   const center = useMemo(() => centroid(local), [local]);
   const size = useMemo(() => footprintSize(item.footprint), [item.footprint]);
@@ -180,7 +182,7 @@ export function FurnitureItemView({
   const lastResizeRef = useRef<{ footprint: Footprint; pos: Vec2 }>({ footprint: item.footprint, pos: item.pos });
 
   const points = local.map((p) => `${p.x},${p.y}`).join(" ");
-  const strokeColor = invalid ? "var(--danger)" : selected ? "var(--accent)" : "rgba(0,0,0,0.25)";
+  const strokeColor = invalid ? "var(--danger)" : selected ? "var(--accent)" : item.color;
 
   const stickLen = 40 * unitsPerPixel;
   const handleR = 5.5 * unitsPerPixel;
@@ -193,6 +195,7 @@ export function FurnitureItemView({
     onSelect(item.id);
     const svg = svgRef.current;
     if (!svg) return;
+    svg.focus({ preventScroll: true });
     (e.target as Element).setPointerCapture(e.pointerId);
     const startSvg = screenToSvgPoint(svg, e.clientX, e.clientY);
     dragRef.current = { mode: "move", startSvg, startPos: item.pos };
@@ -289,7 +292,7 @@ export function FurnitureItemView({
     const localDx = (dx * cos + dy * sin) * resizeSensitivity;
     const localDy = (-dx * sin + dy * cos) * resizeSensitivity;
     const skipSnap = e.altKey;
-    const result = computeResize(drag.edge, drag.startFootprint, drag.startPos, item.rotDeg, localDx, localDy, skipSnap);
+    const result = computeResize(drag.edge, drag.startFootprint, drag.startPos, item.rotDeg, localDx, localDy, skipSnap, unit);
     lastResizeRef.current = result;
     onLiveResize(item.id, result.footprint, result.pos);
   }
@@ -334,10 +337,11 @@ export function FurnitureItemView({
       transform={`translate(${item.pos.x} ${item.pos.y}) rotate(${item.rotDeg} ${center.x} ${center.y})`}
       opacity={item.hidden ? 0.35 : 1}
     >
+      <title>{item.name}</title>
       <polygon
         points={points}
         fill={item.color}
-        fillOpacity={0.72}
+        fillOpacity={0.24}
         stroke={strokeColor}
         strokeWidth={selected || invalid ? 2.4 : 1.4}
         strokeDasharray={invalid ? "6 4" : undefined}
@@ -347,8 +351,20 @@ export function FurnitureItemView({
         onPointerUp={handleMovePointerUp}
         style={{ cursor: "grab" }}
       />
+      <g pointerEvents="none" fill="none" stroke={item.color} strokeWidth={1} vectorEffect="non-scaling-stroke" strokeOpacity={.7}>
+        {presetId?.startsWith("bed-") && item.footprint.kind === "rect" && <>
+          <rect x={size.w * .08} y={size.d * .06} width={size.w * .37} height={size.d * .18} rx={size.w * .025} fill={item.color} fillOpacity={.15} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          <rect x={size.w * .55} y={size.d * .06} width={size.w * .37} height={size.d * .18} rx={size.w * .025} fill={item.color} fillOpacity={.15} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          <line x1={0} y1={size.d * .3} x2={size.w} y2={size.d * .3} vectorEffect="non-scaling-stroke" />
+        </>}
+        {presetId && ["sofa", "loveseat", "armchair"].includes(presetId) && item.footprint.kind === "rect" && <>
+          <rect x={size.w * .1} y={size.d * .2} width={size.w * .8} height={size.d * .7} rx={size.w * .025} fill={item.color} fillOpacity={.12} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          <line x1={size.w * .1} y1={size.d * .22} x2={size.w * .9} y2={size.d * .22} vectorEffect="non-scaling-stroke" />
+        </>}
+      </g>
       {selected && (
         <polygon
+          data-editor-only="true"
           points={points}
           fill="none"
           stroke="var(--accent)"
@@ -359,7 +375,7 @@ export function FurnitureItemView({
         />
       )}
 
-      <g transform={`translate(${center.x} ${center.y}) rotate(${-item.rotDeg})`} pointerEvents="none">
+      <g transform={`translate(${center.x} ${center.y}) rotate(${-item.rotDeg})`} pointerEvents="none" visibility={Math.min(size.w, size.d) / unitsPerPixel < 35 ? "hidden" : undefined}>
         <text
           x={0}
           y={-fontSize * 0.4}
@@ -367,12 +383,12 @@ export function FurnitureItemView({
           dominantBaseline="middle"
           fontSize={fontSize}
           fontWeight={600}
-          fill="var(--zinc-950)"
-          stroke="rgba(255,255,255,0.85)"
+          fill="var(--text)"
+          stroke="var(--bg-elevated)"
           strokeWidth={fontSize * 0.25}
           paintOrder="stroke"
         >
-          {item.name}
+          {item.name.length * 5.8 > Math.max(size.w, size.d) / unitsPerPixel ? `${item.name.slice(0, Math.max(3, Math.floor(Math.max(size.w, size.d) / unitsPerPixel / 5.8) - 1))}…` : item.name}
         </text>
         <text
           x={0}
@@ -381,8 +397,8 @@ export function FurnitureItemView({
           dominantBaseline="middle"
           fontSize={fontSize * 0.85}
           className="tabular-nums"
-          fill="var(--zinc-700)"
-          stroke="rgba(255,255,255,0.85)"
+          fill="var(--text-muted)"
+          stroke="var(--bg-elevated)"
           strokeWidth={fontSize * 0.2}
           paintOrder="stroke"
         >
@@ -391,7 +407,7 @@ export function FurnitureItemView({
       </g>
 
       {selected && (
-        <g pointerEvents="none">
+        <g pointerEvents="none" data-editor-only="true">
           <line
             x1={handleTop.x}
             y1={handleTop.y}
@@ -405,6 +421,7 @@ export function FurnitureItemView({
       )}
       {selected && (
         <circle
+          data-editor-only="true"
           cx={handlePos.x}
           cy={handlePos.y}
           r={handleR}
@@ -422,6 +439,7 @@ export function FurnitureItemView({
       {selected &&
         resizeHandles.map((h) => (
           <rect
+            data-editor-only="true"
             key={h.edge}
             x={h.pos.x - resizeHandleR}
             y={h.pos.y - resizeHandleR}

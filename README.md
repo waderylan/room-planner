@@ -1,61 +1,108 @@
 # Room Planner
 
-A 2D + 3D room and furniture planner: lay out a room to scale, drag furniture into place,
-check clearances and overlaps, and step into a 3D view of the same room.
+A local-first room planner with measured 2D editing, 3D walkthroughs, a saved design library, and an optional room-editing assistant. No account or backend is required to plan and save rooms.
 
-## Run it
+## Run
 
-```bash
-npm install
+Node.js 22.12+ is required.
+
+```sh
+npm ci
 npm run dev
 ```
 
-Then open the printed local URL. `npm run build` produces a production build (TypeScript
-strict mode, no errors). `npm run preview` serves that build locally.
+Open the printed local URL. Start from an empty room or a furnished living room, bedroom, or office. Existing documents from the earlier app migrate into the library automatically.
 
-## Tour
+## Local Codex through Kessel
 
-- **Room panel** (sidebar): set width/length and units (ft or m), switch the room to an
-  L-shape with a visual corner-and-notch editor, add rectangular alcoves/bump-outs to any
-  wall, and set the ceiling height for the 3D view.
-- **Add furniture**: a one-click preset catalog (sofa, bed, desk, kitchen island, and more)
-  drops a piece into the first free spot in the room and selects it. "Custom" adds a plain
-  rectangle to edit from scratch.
-- **Inspector**: the selected piece's name, shape (rectangle, circle, or a visual L-shape
-  editor shared with the room shape), dimensions, height, elevation, exact rotation, and
-  color, all editing live.
-- **2D canvas**: pan (space-drag or middle-drag), zoom (scroll), and fit-to-room. Drag
-  furniture to move it (snaps to a 0.25-unit grid; hold `Alt` to place freely). Select a
-  piece to get a free-rotation handle (snaps to 15 degrees; hold `Shift` for 1-degree steps)
-  and a `R` keyboard shortcut for a quick 90-degree turn. Overlapping or out-of-bounds pieces
-  get a red dashed outline, computed with true polygon math so it's correct for rotated and
-  L-shaped pieces in non-rectangular rooms.
-- **Clearance measurements**: toggle between Wall mode (distance to the nearest wall) and
-  Furniture mode (distance to the nearest piece, falling back to the wall) in the toolbar.
-  The selected item shows its four directional gaps plus a highlighted single closest gap,
-  echoed in the sidebar stats.
-- **Stats**: room area, used area, and free area update live and turn red when the room is
-  overfilled.
-- **Rooms**: the tabs at the bottom add, inline-rename (double-click), switch, and delete
-  rooms. Furniture can be duplicated in place (`Ctrl/Cmd+D`) or copied into another room.
-- **3D view**: toggle to see the same room as extruded walls, a floor, and furniture boxes
-  with correct heights, elevations, rotations, and colors. Orbit around the room, or switch
-  to Walk mode for a first-person view (click to lock the mouse, WASD to move, `Esc` to let
-  go) constrained to stay inside the room.
-- **Save / Load**: Save downloads the full document as pretty-printed JSON; Load restores it
-  from a file, with a toast (not a crash) on anything malformed. The document also autosaves
-  to `localStorage` as you work, so a reload picks up where you left off.
-- **Light / dark mode**: follows the system theme by default, with a manual toggle in the
-  toolbar.
+With Kessel configured and Codex logged in:
 
-## Keyboard shortcuts
+```sh
+npm run dev:codex
+```
 
-`R` rotate 90 degrees, rotation handle drag for free rotation (`Shift` = 1-degree steps),
-`Delete`/`Backspace` delete, `Ctrl/Cmd+D` duplicate, `Esc` deselect or exit walk mode,
-`Alt`-drag ignore grid snap, scroll to zoom, space-drag or middle-drag to pan.
+The launcher uses `kessel` on PATH, then a sibling `../kessel/.venv` checkout. Set `KESSEL_EXECUTABLE` to select another executable. On Rylan Wade's machine the sibling checkout is `C:\Users\Rylan Wade\Desktop\kessel`.
 
-## Stack
+The equivalent explicit PowerShell command is:
 
-Vite, React 19, TypeScript (strict), Tailwind CSS v4, Zustand, hand-rolled SVG for the 2D
-editor, `@react-three/fiber` + `@react-three/drei` for the 3D view, and `@phosphor-icons/react`
-for icons.
+```powershell
+& 'C:\Users\Rylan Wade\Desktop\kessel\.venv\Scripts\kessel.exe' run --provider codex -- npm run dev
+```
+
+Open **Assistant** in the editor. **Assistant settings** shows the connection and models actually returned by Kessel. Kessel supplies `OPENAI_BASE_URL` and `OPENAI_API_KEY` to the local Node process; the browser never receives the gateway key. The Vite middleware accepts only local, same-origin requests and forwards only to Kessel's loopback Codex route. It is absent from production builds.
+
+The assistant reads the active room, uses validated placement tools, checks overlaps, and sends tool results back to Codex until the task finishes. Stop cancels the request. Switching rooms or designs aborts the active task and clears the conversation so late responses cannot edit another room. Changes remain undoable.
+
+Anthropic, OpenAI, and Gemini remain available using a user-supplied API key. Those keys exist only in the current tab's memory and requests go directly to the selected provider. Earlier persisted API keys are removed on startup. Local Kessel is for development on your machine; static hosting does not connect to a visitor's local Codex session.
+
+## Planning
+
+- Create, search, rename, duplicate, and delete independent designs. Each design can contain multiple rooms.
+- Edit rectangular and L-shaped rooms, alcoves, ceilings, windows, and doors. Convert between feet and meters without changing physical dimensions.
+- Search furniture by name or category. Add presets or custom shapes, drag, resize, rotate, and edit exact dimensions and positions.
+- Inspect wall clearances and furniture collisions. Rugs, hidden pieces, and vertically separated objects do not create false collisions.
+- Undo and redo edits. Property changes group into short editing steps.
+- Switch between a 2D floor plan, 3D orbit view, and a first-person walkthrough.
+- Export a JSON design backup or a standalone SVG floor plan. Import JSON as a separate design.
+- Use light or dark appearance, keyboard navigation, or the mobile tools drawer.
+
+Designs are stored in this browser on this device. Autosave reports failures, flushes when the page closes, and blocks stale tabs from overwriting newer saves. Download backups for portability or before clearing browser data. If another tab has changed the library, export the unsaved work and reload the stale tab. Unreadable library data is retained under `room-planner:library:recovery`.
+
+## Shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| Ctrl/Cmd Z | Undo |
+| Ctrl/Cmd Shift Z or Ctrl Y | Redo |
+| Ctrl/Cmd S | Save locally |
+| Ctrl/Cmd D | Duplicate selected furniture |
+| R | Rotate selected furniture 90° |
+| Arrow keys | Move selected furniture; Shift for a larger step |
+| Delete / Backspace | Delete selected furniture |
+| Escape | Deselect / close dialog / release pointer lock |
+| Alt + drag | Move without grid snapping |
+| Scroll | Zoom |
+| Space + drag / middle drag | Pan |
+
+## Verify
+
+```sh
+npm test
+npm run lint
+npm run build
+npx playwright install chromium
+npm run test:e2e
+```
+
+Core tests cover validation, unit conversion, geometry, placement, library migration, storage errors, history, and assistant cancellation/tool execution. Browser tests cover design management, editing, exports, keyboard dialogs, mobile appearance, assistant tool loops, malformed imports, and stale-tab protection. Browser tests mock the assistant and use no provider quota.
+
+With `npm run dev:codex -- --port 5178 --strictPort` running, this opt-in integration test uses real Codex quota through Kessel:
+
+```sh
+npm run test:assistant
+```
+
+It edits an isolated in-memory document: desk placement, a furnished bedroom preserving the desk, then metric conversion and desk editing. `ROOM_PLANNER_URL` selects another local app URL; `ROOM_PLANNER_MODEL` selects an ID returned by Kessel. No browser designs are changed.
+
+## Deploy
+
+```sh
+npm run build
+npm run preview
+```
+
+Publish `dist/` to a static host. The default base path is `/`; set `BASE_PATH=/room-planner/` when building for a subdirectory. Hash navigation works without server rewrite rules. The included GitHub Pages workflow builds with `/room-planner/`; the checks workflow runs core and browser tests. No runtime secrets or accounts are needed.
+
+The 3D renderer loads only when requested. WebGL support is required for 3D; 2D planning remains available without it. Storage is device-local, with no cross-device sync or collaboration.
+
+## Source
+
+- `src/model/`: versioned documents, validation/migration, templates, presets, unit conversion, collision rules.
+- `src/geometry/`: polygon, clearance, outline, and opening math.
+- `src/store/`: document library, history, persistence, view preferences, and assistant settings.
+- `src/components/`: library, 2D/3D editor, contextual tools, assistant, and accessible primitives.
+- `src/llm/`: provider adapters, bounded agent loop, validated tools, and placement logic.
+- `server/kesselPlugin.ts`: development-only local Codex relay.
+- `tests/`: deterministic core and browser tests.
+
+React 19, TypeScript, Vite, Tailwind CSS 4, Zustand, Three.js / React Three Fiber, and Phosphor icons. Shared contributor instructions live in [AGENTS.md](AGENTS.md).

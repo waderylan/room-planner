@@ -1,4 +1,4 @@
-export type Provider = "anthropic" | "openai" | "gemini";
+export type Provider = "local" | "anthropic" | "openai" | "gemini";
 
 export interface JSONSchema {
   type: string;
@@ -19,6 +19,7 @@ export interface ToolCall {
   id: string;
   name: string;
   input: Record<string, unknown>;
+  thoughtSignature?: string;
 }
 
 export interface ToolResult {
@@ -44,6 +45,7 @@ export interface ProviderCallParams {
   system: string;
   turns: Turn[];
   tools: ToolDef[];
+  signal?: AbortSignal;
 }
 
 export class LLMError extends Error {}

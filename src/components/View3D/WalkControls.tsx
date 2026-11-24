@@ -12,6 +12,7 @@ interface WalkControlsProps {
   items: Item[];
   eyeHeight: number;
   ceiling: number;
+  unitScale?: number;
 }
 
 const SPEED = 4.5;
@@ -43,7 +44,7 @@ function findClearSpawnPoint(outline: Vec2[], items: Item[]): Vec2 {
   return center;
 }
 
-export function WalkControls({ outline, items, eyeHeight, ceiling }: WalkControlsProps) {
+export function WalkControls({ outline, items, eyeHeight, ceiling, unitScale = 1 }: WalkControlsProps) {
   const { camera } = useThree();
   const keys = useRef<Record<string, boolean>>({});
   const forward = useRef(new THREE.Vector3());
@@ -60,29 +61,37 @@ export function WalkControls({ outline, items, eyeHeight, ceiling }: WalkControl
     heightRef.current = startHeight;
     camera.position.set(start.x, startHeight, start.y);
     function onDown(e: KeyboardEvent) {
+      if (!document.pointerLockElement) return;
       keys.current[e.code] = true;
     }
     function onUp(e: KeyboardEvent) {
       keys.current[e.code] = false;
     }
+    function resetKeys() { keys.current = {}; }
     window.addEventListener("keydown", onDown);
     window.addEventListener("keyup", onUp);
+    window.addEventListener("blur", resetKeys);
+    document.addEventListener("pointerlockchange", resetKeys);
     return () => {
       window.removeEventListener("keydown", onDown);
       window.removeEventListener("keyup", onUp);
+      window.removeEventListener("blur", resetKeys);
+      document.removeEventListener("pointerlockchange", resetKeys);
       keys.current = {};
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useFrame((_, delta) => {
+    if (!document.pointerLockElement) return;
+    delta = Math.min(delta, .05);
     const k = keys.current;
 
     // H = raise the camera, L = lower it, clamped to stay inside the room vertically.
     const moveUp = (k["KeyH"] ? 1 : 0) - (k["KeyL"] ? 1 : 0);
     if (moveUp !== 0) {
       const maxHeight = Math.max(MIN_HEIGHT, ceiling - 0.2);
-      heightRef.current = Math.min(maxHeight, Math.max(MIN_HEIGHT, heightRef.current + moveUp * VERTICAL_SPEED * delta));
+      heightRef.current = Math.min(maxHeight, Math.max(MIN_HEIGHT, heightRef.current + moveUp * VERTICAL_SPEED * unitScale * delta));
     }
     camera.position.y = heightRef.current;
 
@@ -97,7 +106,7 @@ export function WalkControls({ outline, items, eyeHeight, ceiling }: WalkControl
     // or A/D end up strafing backwards relative to where you're looking.
     right.current.crossVectors(forward.current, new THREE.Vector3(0, 1, 0)).normalize();
 
-    const step = SPEED * delta;
+    const step = SPEED * unitScale * delta;
     const next = camera.position.clone();
     next.addScaledVector(forward.current, moveForward * step);
     next.addScaledVector(right.current, moveRight * step);

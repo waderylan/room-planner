@@ -18,8 +18,10 @@ export function SensitivityControl() {
     function onPointerDown(e: PointerEvent) {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
     }
+    function onKeyDown(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
     window.addEventListener("pointerdown", onPointerDown);
-    return () => window.removeEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => { window.removeEventListener("pointerdown", onPointerDown); window.removeEventListener("keydown", onKeyDown); };
   }, [open]);
 
   return (
@@ -38,6 +40,7 @@ export function SensitivityControl() {
             <span className="tabular-nums text-xs text-[var(--text)]">{Math.round(resizeSensitivity * 100)}%</span>
           </div>
           <input
+            aria-label="Resize sensitivity"
             type="range"
             min={MIN}
             max={MAX}
@@ -46,7 +49,6 @@ export function SensitivityControl() {
             onChange={(e) => setResizeSensitivity(Number(e.target.value))}
             className="w-full accent-[var(--accent)]"
           />
-          <p className="text-[10px] text-[var(--text-faint)]">How far resize handles move per pixel dragged (items, L-shapes, walls).</p>
         </div>
       )}
     </div>

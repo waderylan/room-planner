@@ -1,109 +1,161 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { WarningCircle } from "@phosphor-icons/react";
 import { useStore } from "./store/store";
 import { Toolbar } from "./components/Toolbar";
 import { RoomTabs } from "./components/RoomTabs";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { Canvas2D } from "./components/Canvas2D/Canvas2D";
-import { View3D } from "./components/View3D/View3D";
-import { ToastStack } from "./components/ui/ToastStack";
-import { ChatPanel } from "./components/Chat/ChatPanel";
 import { SettingsDialog } from "./components/Settings/SettingsDialog";
-import { Tutorial } from "./components/Tutorial/Tutorial";
+import { Button } from "./components/ui/Button";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+
+const View3D = lazy(() =>
+  import("./components/View3D/View3D").then((m) => ({ default: m.View3D })),
+);
+const ChatPanel = lazy(() =>
+  import("./components/Chat/ChatPanel").then((m) => ({ default: m.ChatPanel })),
+);
 
 function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tag = target.tagName.toLowerCase();
-  return tag === "input" || tag === "textarea" || target.isContentEditable;
+  return (
+    target instanceof HTMLElement &&
+    (!!target.closest(
+      "input, textarea, select, [role=dialog], [contenteditable=true]",
+    ) ||
+      !!document.querySelector("dialog[open]"))
+  );
 }
 
-export interface AppProps {
-  onBackToLanding?: () => void;
-}
-
-function App({ onBackToLanding }: AppProps) {
-  const theme = useStore((s) => s.theme);
+function App({ onBackToLanding }: { onBackToLanding?: () => void }) {
   const viewMode = useStore((s) => s.viewMode);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const chatOpen = useStore((s) => s.chatOpen);
   const setChatOpen = useStore((s) => s.setChatOpen);
-  const room = useStore((s) => s.activeRoom());
+  const roomId = useStore((s) => s.doc.activeRoomId);
+  const projectId = useStore((s) => s.activeProjectId);
+  const saveStatus = useStore((s) => s.saveStatus);
+  const saveError = useStore((s) => s.saveError);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const selectItem = useStore((s) => s.selectItem);
-  const deleteItem = useStore((s) => s.deleteItem);
-  const duplicateItem = useStore((s) => s.duplicateItem);
-  const rotateItem = useStore((s) => s.rotateItem);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      const store = useStore.getState();
+      const command = e.metaKey || e.ctrlKey;
+      if (command && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        store.flushSave();
+        return;
+      }
       if (isTypingTarget(e.target)) return;
+      if (
+        command &&
+        (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")
+      ) {
+        e.preventDefault();
+        if (e.shiftKey || e.key.toLowerCase() === "y") store.redo();
+        else store.undo();
+        return;
+      }
+      const room = store.activeRoom();
       const selectedId = room.selectedItemId;
-
       if (e.key === "Escape") {
-        if (selectedId) selectItem(null);
+        if (selectedId) store.selectItem(null);
         return;
       }
       if (!selectedId) return;
-
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        deleteItem(selectedId);
-      } else if (e.key.toLowerCase() === "r" && !e.metaKey && !e.ctrlKey) {
+        store.deleteItem(selectedId);
+      } else if (e.key.toLowerCase() === "r" && !command) {
         const item = room.items.find((it) => it.id === selectedId);
-        if (item) rotateItem(selectedId, item.rotDeg + 90);
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "d") {
+        if (item) store.rotateItem(selectedId, item.rotDeg + 90);
+      } else if (command && e.key.toLowerCase() === "d") {
         e.preventDefault();
-        duplicateItem(selectedId);
+        store.duplicateItem(selectedId);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [room, selectItem, deleteItem, duplicateItem, rotateItem]);
+  }, []);
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--bg)] text-[var(--text)]">
-      <div className="flex min-h-0 flex-1">
-        <div
-          className={
-            "fixed inset-0 z-30 bg-black/40 transition-opacity duration-150 md:hidden " +
-            (sidebarOpen ? "opacity-100" : "pointer-events-none opacity-0")
-          }
-          onClick={() => setSidebarOpen(false)}
-        />
-        <div
-          className={
-            "fixed inset-y-0 left-0 z-40 w-[85vw] max-w-[320px] transition-transform duration-150 md:static md:z-auto md:w-auto md:max-w-none md:translate-x-0 " +
-            (sidebarOpen ? "translate-x-0" : "-translate-x-full")
-          }
-        >
+    <div className="editor-shell">
+      <Toolbar onBackToLanding={onBackToLanding} />
+      {saveStatus === "error" && (
+        <div className="save-error" role="alert">
+          <WarningCircle size={18} />
+          <span>{saveError}</span>
+          <Button size="sm" onClick={() => useStore.getState().flushSave()}>
+            Retry
+          </Button>
+          <Button size="sm" onClick={() => useStore.getState().exportDoc()}>
+            Download backup
+          </Button>
+        </div>
+      )}
+      <div className="editor-body">
+        {sidebarOpen && (
+          <button
+            aria-label="Close sidebar"
+            className="mobile-backdrop md:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+        <div className={`editor-sidebar ${sidebarOpen ? "is-open" : ""}`}>
           <Sidebar />
         </div>
-
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Toolbar onBackToLanding={onBackToLanding} />
-          <div data-tour="canvas" className="min-h-0 flex-1">{viewMode === "2d" ? <Canvas2D /> : <View3D />}</div>
-        </div>
-
+        <main className="editor-workspace" aria-label="Room editor">
+          <div data-floor-plan className="canvas-area">
+            <ErrorBoundary
+              key={`${projectId}-${roomId}-${viewMode}`}
+              message="This view could not be opened."
+              onRecover={() => useStore.getState().setViewMode("2d")}
+            >
+              <Suspense
+                fallback={
+                  <div className="view-loading" role="status">
+                    Loading 3D view…
+                  </div>
+                }
+              >
+                {viewMode === "2d" ? (
+                  <Canvas2D key={`${projectId}-${roomId}`} />
+                ) : (
+                  <View3D key={`${projectId}-${roomId}`} />
+                )}
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+          <RoomTabs />
+        </main>
         {chatOpen && (
           <>
-            <div
-              className="fixed inset-0 z-30 bg-black/40 transition-opacity duration-150 md:hidden"
+            <button
+              aria-label="Close assistant"
+              className="mobile-backdrop lg:hidden"
               onClick={() => setChatOpen(false)}
             />
-            <div className="fixed inset-y-0 right-0 z-40 w-[90vw] max-w-[340px] md:static md:z-auto md:w-auto md:max-w-none">
-              <ChatPanel onClose={() => setChatOpen(false)} onOpenSettings={() => setSettingsOpen(true)} />
-            </div>
+            <aside className="assistant-panel" aria-label="Room assistant">
+              <Suspense
+                fallback={
+                  <div className="view-loading">Loading assistant…</div>
+                }
+              >
+                <ChatPanel
+                  key={`${projectId}-${roomId}`}
+                  onClose={() => setChatOpen(false)}
+                  onOpenSettings={() => setSettingsOpen(true)}
+                />
+              </Suspense>
+            </aside>
           </>
         )}
       </div>
-      <RoomTabs />
-      <ToastStack />
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <Tutorial />
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
     </div>
   );
 }
